@@ -477,6 +477,21 @@ select:focus-visible {
   font-weight: 700;
 }
 
+.preview-render-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64777c;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.preview-render-status svg {
+  width: 14px;
+  height: 14px;
+  color: var(--teal-600);
+}
+
 .overflow-banner svg {
   width: 14px;
 }

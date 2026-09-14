@@ -642,6 +642,25 @@ def export_pdf(document: MasterDocument) -> bytes:
     return output.getvalue()
 
 
+def render_preview_page(document: MasterDocument, page_number: int) -> bytes:
+    content = export_pdf(document)
+    pdf = fitz.open(stream=content, filetype="pdf")
+    if page_number < 1 or page_number > len(pdf):
+        pdf.close()
+        raise ExportError(f"Preview refers to missing page {page_number}.")
+    pixmap = pdf[page_number - 1].get_pixmap(
+        matrix=fitz.Matrix(
+            document.coordinate_scale,
+            document.coordinate_scale,
+        ),
+        colorspace=fitz.csRGB,
+        alpha=False,
+    )
+    preview = pixmap.tobytes("png")
+    pdf.close()
+    return preview
+
+
 def _safe_lines(text: str, width: int = 88) -> Iterable[str]:
     normalized = re.sub(r"\s+", " ", text).strip() or "(empty)"
     words = normalized.split(" ")

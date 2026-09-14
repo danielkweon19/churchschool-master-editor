@@ -47,6 +47,10 @@ the markers and indentation automatically while keeping the text searchable.
 For regular paragraphs, enable **Indent first line** to move only the opening
 line inward by one standard tab.
 
+After an edit, the page preview is rendered by the same PDF engine used for
+downloaded exports. This keeps font metrics, wrapping, lists, and indentation
+identical between the on-screen preview and the final PDF.
+
 ## Validation
 
 ```bash

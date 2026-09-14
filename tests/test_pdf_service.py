@@ -13,6 +13,7 @@ from backend.pdf_service import (
     _sample_background,
     export_change_log,
     export_pdf,
+    render_preview_page,
 )
 
 
@@ -298,6 +299,27 @@ class PdfServiceTest(unittest.TestCase):
             delta=0.75,
         )
         exported.close()
+
+    def test_preview_page_uses_the_exact_export_renderer(self) -> None:
+        document = self.document()
+        field = document.fields[0]
+        field.current_text = "Indented first\nSecond line"
+        field.first_line_tab = True
+        field.original_first_line_tab = False
+        document.revisions = []
+
+        preview = render_preview_page(document, 1)
+        exported = fitz.open(stream=export_pdf(document), filetype="pdf")
+        expected = exported[0].get_pixmap(
+            matrix=fitz.Matrix(
+                document.coordinate_scale,
+                document.coordinate_scale,
+            ),
+            colorspace=fitz.csRGB,
+            alpha=False,
+        ).tobytes("png")
+        exported.close()
+        self.assertEqual(preview, expected)
 
 
 if __name__ == "__main__":

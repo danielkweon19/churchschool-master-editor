@@ -59,6 +59,7 @@ type InspectorTab = "field" | "history";
 
 interface PageCanvasProps {
   page: PageDefinition;
+  previewImage?: string;
   candidates: Candidate[];
   fields: ManagedField[];
   mode: Mode;
@@ -68,6 +69,24 @@ interface PageCanvasProps {
   onMarqueeSelect: (candidateIds: string[], additive: boolean) => void;
   onFieldClick: (field: ManagedField) => void;
   onOverflow: (fieldId: string, overflowing: boolean) => void;
+}
+
+function fieldWasChanged(field: ManagedField): boolean {
+  return (
+    field.currentText !== field.originalText ||
+    Math.abs(field.fontSize - field.originalFontSize) > 0.01 ||
+    field.color !== field.originalColor ||
+    field.backgroundMode !== "auto" ||
+    field.backgroundColor !== field.originalBackgroundColor ||
+    field.align !== field.originalAlign ||
+    field.listStyle !== field.originalListStyle ||
+    field.firstLineTab !== field.originalFirstLineTab ||
+    Math.abs(field.lineHeight - field.originalLineHeight) > 0.001 ||
+    Math.abs(field.leftIndent - field.originalLeftIndent) > 0.01 ||
+    Math.abs(field.firstLineIndent - field.originalFirstLineIndent) > 0.01 ||
+    Math.abs(field.tabInterval - field.originalTabInterval) > 0.01 ||
+    JSON.stringify(field.tabStops) !== JSON.stringify(field.originalTabStops)
+  );
 }
 
 function fontStack(family: string): string {
@@ -380,6 +399,7 @@ function ManagedOverlay({
   onClick,
   onOverflow,
   resolvedBackground,
+  renderTextPreview,
 }: {
   field: ManagedField;
   page: PageDefinition;
@@ -389,6 +409,7 @@ function ManagedOverlay({
   onClick: () => void;
   onOverflow: (overflowing: boolean) => void;
   resolvedBackground: string;
+  renderTextPreview: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const horizontalScale = previewHorizontalScale(field, scale);
@@ -397,25 +418,13 @@ function ManagedOverlay({
     !field.currentText.includes("\n") &&
     field.listStyle === "none" &&
     !field.firstLineTab;
-  const changed =
-    field.currentText !== field.originalText ||
-    Math.abs(field.fontSize - field.originalFontSize) > 0.01 ||
-    field.color !== field.originalColor ||
-    field.backgroundMode !== "auto" ||
-    field.align !== field.originalAlign ||
-    field.listStyle !== field.originalListStyle ||
-    field.firstLineTab !== field.originalFirstLineTab ||
-    Math.abs(field.lineHeight - field.originalLineHeight) > 0.001 ||
-    Math.abs(field.leftIndent - field.originalLeftIndent) > 0.01 ||
-    Math.abs(field.firstLineIndent - field.originalFirstLineIndent) > 0.01 ||
-    Math.abs(field.tabInterval - field.originalTabInterval) > 0.01 ||
-    JSON.stringify(field.tabStops) !== JSON.stringify(field.originalTabStops);
+  const changed = fieldWasChanged(field);
   const hasTabs = field.currentText.includes("\t");
   const hasList = field.listStyle !== "none";
 
   useLayoutEffect(() => {
     const element = contentRef.current;
-    if (!element || !changed) {
+    if (!element || !changed || !renderTextPreview) {
       onOverflow(false);
       return;
     }
@@ -440,6 +449,7 @@ function ManagedOverlay({
     horizontalScale,
     scale,
     onOverflow,
+    renderTextPreview,
   ]);
 
   const position = {
@@ -475,7 +485,7 @@ function ManagedOverlay({
       }`}
       style={position}
     >
-      {changed && field.previewPatch && patchPosition && (
+      {changed && renderTextPreview && field.previewPatch && patchPosition && (
         <img
           className="artwork-preview-patch"
           src={field.previewPatch}
@@ -483,7 +493,7 @@ function ManagedOverlay({
           style={patchPosition}
         />
       )}
-      {changed && (
+      {changed && renderTextPreview && (
         <div
           ref={contentRef}
           className="managed-render"
@@ -547,6 +557,7 @@ function ManagedOverlay({
 
 function PageCanvas({
   page,
+  previewImage,
   candidates,
   fields,
   mode,
@@ -573,6 +584,8 @@ function PageCanvas({
   } | null>(null);
   const suppressCandidateClick = useRef(false);
   const pointerCandidateId = useRef<string | null>(null);
+  const activePageImage =
+    mode === "edit" && previewImage ? previewImage : page.image;
 
   const marquee = useMemo<BoundingBox | null>(() => {
     if (!dragStart || !dragCurrent) return null;
@@ -694,7 +707,7 @@ function PageCanvas({
       >
         <img
           ref={imageRef}
-          src={page.image}
+          src={activePageImage}
           alt={`Chapter 37 page ${page.number}`}
           onLoad={() => setImageVersion((current) => current + 1)}
         />
@@ -754,6 +767,7 @@ function PageCanvas({
                 ? autoBackgrounds[field.id] ?? field.backgroundColor
                 : field.backgroundColor
             }
+            renderTextPreview={!previewImage || mode !== "edit"}
           />
         ))}
       </div>
@@ -795,7 +809,21 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
   const [exporting, setExporting] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [previewPages, setPreviewPages] = useState<Record<number, string>>({});
+  const [previewStatus, setPreviewStatus] = useState<
+    "idle" | "rendering" | "ready" | "error"
+  >("idle");
+  const previewPagesRef = useRef<Record<number, string>>({});
   const importRef = useRef<HTMLInputElement>(null);
+
+  function replacePreviewPages(next: Record<number, string>) {
+    const previous = previewPagesRef.current;
+    Object.entries(previous).forEach(([pageNumber, url]) => {
+      if (next[Number(pageNumber)] !== url) URL.revokeObjectURL(url);
+    });
+    previewPagesRef.current = next;
+    setPreviewPages(next);
+  }
 
   useEffect(() => {
     let active = true;
@@ -877,6 +905,65 @@ function App() {
       revisions,
     };
   }, [fields, manifest, revisions]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(previewPagesRef.current).forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const changedPages = [
+      ...new Set(
+        fields.filter(fieldWasChanged).map((field) => field.page),
+      ),
+    ];
+    if (!masterDocument || mode !== "edit" || !changedPages.length) {
+      replacePreviewPages({});
+      setPreviewStatus("idle");
+      return;
+    }
+
+    replacePreviewPages({});
+    setPreviewStatus("rendering");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      Promise.all(
+        changedPages.map(async (pageNumber) => {
+          const response = await fetch(`/api/preview/page/${pageNumber}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ document: masterDocument }),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(await responseError(response));
+          return [pageNumber, URL.createObjectURL(await response.blob())] as const;
+        }),
+      )
+        .then((entries) => {
+          if (controller.signal.aborted) {
+            entries.forEach(([, url]) => URL.revokeObjectURL(url));
+            return;
+          }
+          replacePreviewPages(Object.fromEntries(entries));
+          setPreviewStatus("ready");
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          setPreviewStatus("error");
+          if (error instanceof Error && !overflowIds.size) {
+            setToast(`Exact preview unavailable: ${error.message}`);
+          }
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [fields, masterDocument, mode]);
 
   function showField(field: ManagedField) {
     setSelectedFieldId(field.id);
@@ -1272,6 +1359,12 @@ function App() {
                 overflowing
               </div>
             )}
+            {previewStatus === "rendering" && (
+              <div className="preview-render-status">
+                <LoaderCircle className="spin" />
+                Matching export preview
+              </div>
+            )}
           </div>
 
           <div className="pages">
@@ -1279,6 +1372,7 @@ function App() {
               <PageCanvas
                 key={page.number}
                 page={page}
+                previewImage={previewPages[page.number]}
                 candidates={manifest.candidates.filter(
                   (candidate) =>
                     candidate.page === page.number &&

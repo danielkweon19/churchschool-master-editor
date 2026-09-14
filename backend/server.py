@@ -5,10 +5,15 @@ import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from .models import ExportRequest
-from .pdf_service import ExportError, export_change_log, export_pdf
+from .pdf_service import (
+    ExportError,
+    export_change_log,
+    export_pdf,
+    render_preview_page,
+)
 
 
 app = FastAPI(title="Chapter Master PDF Export Service", version="0.1.0")
@@ -56,3 +61,18 @@ def create_change_log(request: ExportRequest) -> StreamingResponse:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return _pdf_response(content, _filename(request.document.title, "change-log"))
 
+
+@app.post("/api/preview/page/{page_number}")
+def create_page_preview(
+    page_number: int,
+    request: ExportRequest,
+) -> Response:
+    try:
+        content = render_preview_page(request.document, page_number)
+    except ExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
