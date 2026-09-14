@@ -56,7 +56,7 @@ import {
 } from "./utils";
 
 type InspectorTab = "field" | "history";
-const FIRST_LINE_TAB_EM = 3;
+const FIRST_LINE_TAB_EM = 2.5;
 
 interface PageCanvasProps {
   page: PageDefinition;

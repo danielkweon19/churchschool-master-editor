@@ -21,7 +21,7 @@ FONT_FILES = {
     ("superclarendon", False): FONT_ROOT / "SuperClarendon.ttc",
     ("superclarendon", True): FONT_ROOT / "SuperClarendon.ttc",
 }
-FIRST_LINE_TAB_EM = 3
+FIRST_LINE_TAB_EM = 2.5
 
 
 class ExportError(ValueError):
