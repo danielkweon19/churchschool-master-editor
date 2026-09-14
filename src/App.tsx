@@ -101,8 +101,12 @@ function fontStack(family: string): string {
 
 function normalizeField(field: ManagedField): ManagedField {
   const lineHeight = field.lineHeight ?? 1.13;
-  const leftIndent = field.leftIndent ?? 0;
-  const firstLineIndent = field.firstLineIndent ?? 0;
+  // Older versions inferred these values from PDF line coordinates. That
+  // inference could treat small source alignment differences as a paragraph
+  // indent. Keep hidden legacy indentation neutral; the explicit first-line
+  // toggle below is now the only automatic paragraph indent.
+  const leftIndent = 0;
+  const firstLineIndent = 0;
   const tabInterval = field.tabInterval ?? 54;
   const tabStops = Array.isArray(field.tabStops) ? field.tabStops : [];
   const listStyle = field.listStyle ?? "none";
@@ -121,10 +125,9 @@ function normalizeField(field: ManagedField): ManagedField {
     lineHeight,
     originalLineHeight: field.originalLineHeight ?? lineHeight,
     leftIndent,
-    originalLeftIndent: field.originalLeftIndent ?? leftIndent,
+    originalLeftIndent: 0,
     firstLineIndent,
-    originalFirstLineIndent:
-      field.originalFirstLineIndent ?? firstLineIndent,
+    originalFirstLineIndent: 0,
     tabInterval,
     originalTabInterval: field.originalTabInterval ?? tabInterval,
     tabStops,
@@ -186,8 +189,8 @@ function normalizeRevision(
             listStyle: value.listStyle ?? "none",
             firstLineTab: value.firstLineTab ?? false,
             lineHeight: value.lineHeight ?? 1.13,
-            leftIndent: value.leftIndent ?? 0,
-            firstLineIndent: value.firstLineIndent ?? 0,
+            leftIndent: 0,
+            firstLineIndent: 0,
             tabInterval: value.tabInterval ?? 54,
             tabStops: Array.isArray(value.tabStops) ? value.tabStops : [],
           },
@@ -324,9 +327,11 @@ function TabbedText({
   }
   return field.currentText.split("\n").map((line, lineIndex) => {
     let currentX =
-      field.leftIndent +
+      (field.firstLineTab ? 0 : field.leftIndent) +
       (lineIndex === 0
-        ? field.firstLineIndent + (field.firstLineTab ? field.tabInterval : 0)
+        ? field.firstLineTab
+          ? field.fontSize * 2
+          : field.firstLineIndent
         : 0);
     const segments = line.split("\t").map((text, segmentIndex) => {
       if (segmentIndex > 0) currentX = nextTabStop(field, currentX);
@@ -510,13 +515,15 @@ function ManagedOverlay({
             whiteSpace:
               autoFit || hasTabs ? "nowrap" : hasList ? "normal" : "pre-wrap",
             paddingLeft:
-              hasTabs || hasList ? 0 : `${field.leftIndent * scale}px`,
+              hasTabs || hasList || field.firstLineTab
+                ? 0
+                : `${field.leftIndent * scale}px`,
             textIndent: hasTabs || hasList
               ? 0
               : `${
-                  (field.firstLineIndent +
-                    (field.firstLineTab ? field.tabInterval : 0)) *
-                  scale
+                  (field.firstLineTab
+                    ? field.fontSize * 2
+                    : field.firstLineIndent) * scale
                 }px`,
             tabSize: `${field.tabInterval * scale}px`,
             right: autoFit ? "auto" : 0,

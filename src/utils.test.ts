@@ -57,7 +57,7 @@ describe("document helpers", () => {
     expect(field.candidateIds).toEqual(["a", "b"]);
     expect(field.lineHeight).toBeCloseTo(18 / 14);
     expect(field.leftIndent).toBe(0);
-    expect(field.firstLineIndent).toBe(10);
+    expect(field.firstLineIndent).toBe(0);
   });
 
   it("selects text lines substantially crossed by a drag marquee", () => {
@@ -89,9 +89,9 @@ describe("document helpers", () => {
         before: "First line\nSecond line",
         after: "Revised",
         beforeStyle:
-          "14 source units, line 1.29, indents 0/10, left, text #000000, automatic source background",
+          "14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
         afterStyle:
-          "14 source units, line 1.29, indents 0/10, left, text #000000, automatic source background",
+          "14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
       },
     ]);
     expect(snapshotFields(fields)[field.id].text).toBe("Revised");

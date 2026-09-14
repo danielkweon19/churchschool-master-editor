@@ -281,6 +281,8 @@ class PdfServiceTest(unittest.TestCase):
         field.current_text = "Indented first\nSecond line"
         field.first_line_tab = True
         field.original_first_line_tab = False
+        field.left_indent = 42
+        field.first_line_indent = 18
         document.revisions = []
 
         content = export_pdf(document)
@@ -290,7 +292,7 @@ class PdfServiceTest(unittest.TestCase):
         second = next(word for word in words if word[4] == "Second")
         self.assertAlmostEqual(
             indented[0] - second[0],
-            field.tab_interval / document.coordinate_scale,
+            field.font_size * 2 / document.coordinate_scale,
             delta=0.75,
         )
         self.assertAlmostEqual(

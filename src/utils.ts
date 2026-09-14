@@ -70,10 +70,6 @@ function median(values: number[]): number {
 
 function inferredParagraphFormat(candidates: Candidate[], bbox: BoundingBox) {
   const first = candidates[0];
-  const subsequent = candidates.slice(1);
-  const baselineLeft = subsequent.length
-    ? median(subsequent.map((candidate) => candidate.bbox.left))
-    : first.bbox.left;
   const verticalSteps = candidates
     .slice(1)
     .map((candidate, index) => candidate.bbox.top - candidates[index].bbox.top)
@@ -82,8 +78,8 @@ function inferredParagraphFormat(candidates: Candidate[], bbox: BoundingBox) {
     lineHeight: verticalSteps.length
       ? Math.max(0.8, median(verticalSteps) / first.style.fontSize)
       : 1.13,
-    leftIndent: Math.max(0, baselineLeft - bbox.left),
-    firstLineIndent: first.bbox.left - baselineLeft,
+    leftIndent: 0,
+    firstLineIndent: 0,
   };
 }
 

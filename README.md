@@ -45,7 +45,7 @@ Choose **Plain text**, **Bullets**, or **Numbered** at the top of the field
 editor. For a list, enter one item on each line. The preview and PDF export add
 the markers and indentation automatically while keeping the text searchable.
 For regular paragraphs, enable **Indent first line** to move only the opening
-line inward by one standard tab.
+line inward by a small paragraph-style indent.
 
 After an edit, the page preview is rendered by the same PDF engine used for
 downloaded exports. This keeps font metrics, wrapping, lists, and indentation

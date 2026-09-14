@@ -318,10 +318,11 @@ def _insert_paragraph_text(
         return False
 
     font_size = field.font_size * scale
-    left_indent = field.left_indent * scale
+    left_indent = (0 if field.first_line_tab else field.left_indent) * scale
     first_indent = (
-        field.first_line_indent
-        + (field.tab_interval if field.first_line_tab else 0)
+        field.font_size * 2
+        if field.first_line_tab
+        else field.first_line_indent
     ) * scale
     right_edge = rect.x1
     line_advance = font_size * field.line_height
