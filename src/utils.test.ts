@@ -81,7 +81,13 @@ describe("document helpers", () => {
 
   it("compares drafts with the last saved snapshot", () => {
     const field = createManagedField(candidates, "Lesson", "#ffffff");
-    const fields: ManagedField[] = [{ ...field, currentText: "Revised" }];
+    const fields: ManagedField[] = [
+      {
+        ...field,
+        currentText: "Revised",
+        bbox: { ...field.bbox, left: 15 },
+      },
+    ];
     expect(revisionChanges(fields, [])).toEqual([
       {
         fieldId: field.id,
@@ -89,12 +95,13 @@ describe("document helpers", () => {
         before: "First line\nSecond line",
         after: "Revised",
         beforeStyle:
-          "14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
+          "x 10, y 10, 110×36, 14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
         afterStyle:
-          "14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
+          "x 15, y 10, 110×36, 14 source units, line 1.29, indents 0/0, left, text #000000, automatic source background",
       },
     ]);
     expect(snapshotFields(fields)[field.id].text).toBe("Revised");
+    expect(snapshotFields(fields)[field.id].bbox.left).toBe(15);
   });
 
   it("inserts a literal tab at the current text selection", () => {

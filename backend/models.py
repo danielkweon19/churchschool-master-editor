@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class BoundingBox(BaseModel):
@@ -19,6 +19,10 @@ class ManagedField(BaseModel):
     page: int = Field(ge=1)
     candidate_ids: list[str] = Field(alias="candidateIds")
     bbox: BoundingBox
+    original_bbox: Optional[BoundingBox] = Field(
+        default=None, alias="originalBbox"
+    )
+    source_bbox: Optional[BoundingBox] = Field(default=None, alias="sourceBbox")
     original_text: str = Field(alias="originalText")
     current_text: str = Field(alias="currentText")
     font_family: str = Field(alias="fontFamily")
@@ -70,6 +74,18 @@ class ManagedField(BaseModel):
         default="fixed", alias="fitMode"
     )
 
+    @model_validator(mode="after")
+    def populate_legacy_geometry(self) -> "ManagedField":
+        if self.original_bbox is None:
+            self.original_bbox = self.bbox.model_copy()
+        if (
+            self.source_bbox is None
+            and self.candidate_ids
+            and self.original_text
+        ):
+            self.source_bbox = self.original_bbox.model_copy()
+        return self
+
     @field_validator(
         "color",
         "original_color",
@@ -95,6 +111,7 @@ class FieldChange(BaseModel):
 
 class FieldSnapshot(BaseModel):
     text: str
+    bbox: Optional[BoundingBox] = None
     font_size: float = Field(alias="fontSize", gt=0)
     color: str
     background_mode: Literal["auto", "manual"] = Field(

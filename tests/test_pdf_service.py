@@ -326,6 +326,80 @@ class PdfServiceTest(unittest.TestCase):
         exported.close()
         self.assertEqual(preview, expected)
 
+    def test_moves_text_while_removing_it_from_the_source_location(self) -> None:
+        document = self.document()
+        field = document.fields[0]
+        field.current_text = "Moved text"
+        field.bbox.left += 90
+        field.bbox.top += 45
+        document.revisions = []
+
+        content = export_pdf(document)
+        exported = fitz.open(stream=content, filetype="pdf")
+        words = exported[0].get_text("words")
+        moved = next(word for word in words if word[4] == "Moved")
+        self.assertAlmostEqual(
+            moved[0],
+            field.bbox.left / document.coordinate_scale,
+            delta=0.75,
+        )
+        self.assertAlmostEqual(
+            moved[1],
+            field.bbox.top / document.coordinate_scale,
+            delta=0.75,
+        )
+        page_text = exported[0].get_text()
+        self.assertNotIn("Do you like the ant?", page_text)
+        exported.close()
+
+    def test_adds_a_new_text_box_without_a_source_redaction(self) -> None:
+        document = self.document()
+        document.fields = [
+            ManagedField.model_validate(
+                {
+                    "id": "new-text-box",
+                    "label": "New text box",
+                    "page": 1,
+                    "candidateIds": [],
+                    "bbox": {
+                        "left": 100,
+                        "top": 700,
+                        "width": 220,
+                        "height": 40,
+                    },
+                    "originalBbox": {
+                        "left": 100,
+                        "top": 700,
+                        "width": 220,
+                        "height": 40,
+                    },
+                    "sourceBbox": None,
+                    "originalText": "",
+                    "currentText": "Added directly",
+                    "fontFamily": "Times New Roman",
+                    "fontSize": 14,
+                    "originalFontSize": 14,
+                    "bold": False,
+                    "color": "#000000",
+                    "originalColor": "#000000",
+                    "backgroundMode": "auto",
+                    "backgroundColor": "#ffffff",
+                    "originalBackgroundColor": "#ffffff",
+                    "align": "left",
+                    "originalAlign": "left",
+                }
+            )
+        ]
+        document.revisions = []
+
+        content = export_pdf(document)
+        exported = fitz.open(stream=content, filetype="pdf")
+        self.assertIn(
+            "Added directly",
+            exported[0].get_text().replace("\xa0", " "),
+        )
+        exported.close()
+
 
 if __name__ == "__main__":
     unittest.main()

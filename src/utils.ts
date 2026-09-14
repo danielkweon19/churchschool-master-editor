@@ -98,6 +98,8 @@ export function createManagedField(
     page: first.page,
     candidateIds: sorted.map((candidate) => candidate.id),
     bbox,
+    originalBbox: { ...bbox },
+    sourceBbox: { ...bbox },
     originalText: sorted.map((candidate) => candidate.text).join("\n"),
     currentText: sorted.map((candidate) => candidate.text).join("\n"),
     fontFamily: first.style.fontFamily,
@@ -135,6 +137,7 @@ export function createManagedField(
 function sourceSnapshot(field: ManagedField): FieldSnapshot {
   return {
     text: field.originalText,
+    bbox: field.originalBbox,
     fontSize: field.originalFontSize,
     color: field.originalColor,
     backgroundMode: "auto",
@@ -153,6 +156,7 @@ function sourceSnapshot(field: ManagedField): FieldSnapshot {
 function currentSnapshot(field: ManagedField): FieldSnapshot {
   return {
     text: field.currentText,
+    bbox: field.bbox,
     fontSize: field.fontSize,
     color: field.color,
     backgroundMode: field.backgroundMode,
@@ -179,7 +183,10 @@ function styleSummary(snapshot: FieldSnapshot): string {
   const list =
     snapshot.listStyle === "none" ? "" : `, ${snapshot.listStyle} list`;
   const firstLineTab = snapshot.firstLineTab ? ", first-line tab" : "";
-  return `${snapshot.fontSize} source units, line ${snapshot.lineHeight.toFixed(
+  const geometry = `x ${Math.round(snapshot.bbox.left)}, y ${Math.round(
+    snapshot.bbox.top,
+  )}, ${Math.round(snapshot.bbox.width)}×${Math.round(snapshot.bbox.height)}`;
+  return `${geometry}, ${snapshot.fontSize} source units, line ${snapshot.lineHeight.toFixed(
     2,
   )}, indents ${snapshot.leftIndent}/${snapshot.firstLineIndent}${stops}${list}${firstLineTab}, ${
     snapshot.align

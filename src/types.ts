@@ -48,6 +48,8 @@ export interface ManagedField {
   page: number;
   candidateIds: string[];
   bbox: BoundingBox;
+  originalBbox: BoundingBox;
+  sourceBbox: BoundingBox | null;
   originalText: string;
   currentText: string;
   fontFamily: string;
@@ -82,6 +84,7 @@ export interface ManagedField {
 
 export interface FieldSnapshot {
   text: string;
+  bbox: BoundingBox;
   fontSize: number;
   color: string;
   backgroundMode: "auto" | "manual";

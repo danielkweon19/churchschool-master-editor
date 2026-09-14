@@ -119,13 +119,14 @@ def _source_span(
     field: ManagedField,
     coordinate_scale: float,
 ) -> dict | None:
-    if "\n" in field.original_text:
+    if "\n" in field.original_text or field.source_bbox is None:
         return None
+    source_box = field.source_bbox
     target = fitz.Rect(
-        field.bbox.left / coordinate_scale,
-        field.bbox.top / coordinate_scale,
-        (field.bbox.left + field.bbox.width) / coordinate_scale,
-        (field.bbox.top + field.bbox.height) / coordinate_scale,
+        source_box.left / coordinate_scale,
+        source_box.top / coordinate_scale,
+        (source_box.left + source_box.width) / coordinate_scale,
+        (source_box.top + source_box.height) / coordinate_scale,
     )
     matches: list[tuple[float, dict]] = []
     for block in page.get_text("rawdict").get("blocks", []):
@@ -174,6 +175,7 @@ def _insert_fitted_single_line(
     span: dict,
     font_name: str,
     font_file: str | None,
+    coordinate_scale: float,
     draw_shadow: bool = False,
 ) -> bool:
     if not font_file:
@@ -181,7 +183,7 @@ def _insert_fitted_single_line(
     source_size = float(span["size"])
     size = source_size * (field.font_size / field.original_font_size)
     source_bbox = fitz.Rect(span["bbox"])
-    target_width = source_bbox.width
+    target_width = field.bbox.width / coordinate_scale
     font = fitz.Font(fontfile=font_file)
     original_width = max(
         font.text_length(field.original_text, fontsize=size), 0.01
@@ -197,7 +199,14 @@ def _insert_fitted_single_line(
     if horizontal_scale < 0.55:
         return False
 
-    origin = fitz.Point(span["origin"])
+    original_box = field.original_bbox or field.bbox
+    source_origin = fitz.Point(span["origin"])
+    origin = fitz.Point(
+        source_origin.x
+        + (field.bbox.left - original_box.left) / coordinate_scale,
+        source_origin.y
+        + (field.bbox.top - original_box.top) / coordinate_scale,
+    )
     morph = fitz.Matrix(horizontal_scale, 1)
     if draw_shadow:
         shadow_color = (0.56, 0.73, 0.82)
@@ -484,6 +493,16 @@ def _was_changed(field: ManagedField) -> bool:
         or field.align != field.original_align
         or field.list_style != field.original_list_style
         or field.first_line_tab != field.original_first_line_tab
+        or field.original_bbox is None
+        or any(
+            abs(current - original) > 0.01
+            for current, original in (
+                (field.bbox.left, field.original_bbox.left),
+                (field.bbox.top, field.original_bbox.top),
+                (field.bbox.width, field.original_bbox.width),
+                (field.bbox.height, field.original_bbox.height),
+            )
+        )
         or abs(field.line_height - field.original_line_height) > 0.001
         or abs(field.left_indent - field.original_left_indent) > 0.01
         or abs(field.first_line_indent - field.original_first_line_indent)
@@ -516,7 +535,9 @@ def export_pdf(document: MasterDocument) -> bytes:
         scale = 1 / document.coordinate_scale
 
         for field in page_fields:
-            box = field.bbox
+            source_box = field.source_bbox
+            if source_box is None:
+                continue
             source_span = source_spans[field.id]
             rect = (
                 _decorative_redaction_rect(source_span)
@@ -524,20 +545,15 @@ def export_pdf(document: MasterDocument) -> bytes:
                 else fitz.Rect(source_span["bbox"]) + (-0.6, -0.4, 0.8, 0.8)
                 if source_span is not None
                 else fitz.Rect(
-                    box.left * scale - 0.6,
-                    box.top * scale - 0.4,
-                    (box.left + box.width) * scale + 0.8,
-                    (box.top + box.height) * scale + 0.8,
+                    source_box.left * scale - 0.6,
+                    source_box.top * scale - 0.4,
+                    (source_box.left + source_box.width) * scale + 0.8,
+                    (source_box.top + source_box.height) * scale + 0.8,
                 )
-            )
-            background = (
-                None
-                if field.background_mode == "auto"
-                else _rgb(field.background_color)
             )
             page.add_redact_annot(
                 rect,
-                fill=background,
+                fill=None,
                 cross_out=False,
             )
 
@@ -553,6 +569,13 @@ def export_pdf(document: MasterDocument) -> bytes:
             )
             font_name, font_file = _font_for(field)
             source_span = source_spans[field.id]
+            if field.background_mode == "manual":
+                page.draw_rect(
+                    rect,
+                    color=None,
+                    fill=_rgb(field.background_color),
+                    overlay=True,
+                )
             if (
                 field.fit_mode == "shrink"
                 and "\n" not in field.current_text
@@ -563,6 +586,7 @@ def export_pdf(document: MasterDocument) -> bytes:
                     source_span,
                     font_name,
                     font_file,
+                    document.coordinate_scale,
                     draw_shadow=_is_chapter_number(field, source_span),
                 )
             ):

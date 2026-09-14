@@ -14,6 +14,7 @@ import {
   List,
   ListOrdered,
   LoaderCircle,
+  Move,
   MousePointer2,
   PanelRight,
   Plus,
@@ -21,6 +22,7 @@ import {
   Save,
   Settings2,
   Trash2,
+  Type,
   Upload,
   X,
 } from "lucide-react";
@@ -61,15 +63,28 @@ const FIRST_LINE_TAB_EM = 2.5;
 interface PageCanvasProps {
   page: PageDefinition;
   previewImage?: string;
+  createBoxMode: boolean;
   candidates: Candidate[];
   fields: ManagedField[];
   mode: Mode;
   selectedCandidates: Set<string>;
   selectedFieldId: string | null;
   onCandidateClick: (candidate: Candidate) => void;
+  onDirectCandidateClick: (candidate: Candidate) => void;
   onMarqueeSelect: (candidateIds: string[], additive: boolean) => void;
+  onCreateTextBox: (bbox: BoundingBox) => void;
   onFieldClick: (field: ManagedField) => void;
+  onFieldGeometryChange: (fieldId: string, bbox: BoundingBox) => void;
   onOverflow: (fieldId: string, overflowing: boolean) => void;
+}
+
+function boxesEqual(left: BoundingBox, right: BoundingBox): boolean {
+  return (
+    Math.abs(left.left - right.left) < 0.01 &&
+    Math.abs(left.top - right.top) < 0.01 &&
+    Math.abs(left.width - right.width) < 0.01 &&
+    Math.abs(left.height - right.height) < 0.01
+  );
 }
 
 function fieldWasChanged(field: ManagedField): boolean {
@@ -82,6 +97,7 @@ function fieldWasChanged(field: ManagedField): boolean {
     field.align !== field.originalAlign ||
     field.listStyle !== field.originalListStyle ||
     field.firstLineTab !== field.originalFirstLineTab ||
+    !boxesEqual(field.bbox, field.originalBbox) ||
     Math.abs(field.lineHeight - field.originalLineHeight) > 0.001 ||
     Math.abs(field.leftIndent - field.originalLeftIndent) > 0.01 ||
     Math.abs(field.firstLineIndent - field.originalFirstLineIndent) > 0.01 ||
@@ -112,8 +128,18 @@ function normalizeField(field: ManagedField): ManagedField {
   const tabStops = Array.isArray(field.tabStops) ? field.tabStops : [];
   const listStyle = field.listStyle ?? "none";
   const firstLineTab = field.firstLineTab ?? false;
+  const originalBbox = field.originalBbox ?? field.bbox;
+  const sourceBbox =
+    field.sourceBbox === undefined
+      ? field.candidateIds.length && field.originalText
+        ? originalBbox
+        : null
+      : field.sourceBbox;
   return {
     ...field,
+    bbox: { ...field.bbox },
+    originalBbox: { ...originalBbox },
+    sourceBbox: sourceBbox ? { ...sourceBbox } : null,
     originalColor: field.originalColor ?? field.color,
     backgroundMode: field.backgroundMode ?? "auto",
     originalBackgroundColor:
@@ -156,6 +182,7 @@ function normalizeField(field: ManagedField): ManagedField {
 function snapshotFromField(field: ManagedField, text: string): FieldSnapshot {
   return {
     text,
+    bbox: { ...field.bbox },
     fontSize: field.fontSize,
     color: field.color,
     backgroundMode: field.backgroundMode,
@@ -181,11 +208,18 @@ function normalizeRevision(
   >;
   const snapshot = Object.fromEntries(
     Object.entries(rawSnapshot).map(([fieldId, value]) => {
+      const field = normalizedFields.find((item) => item.id === fieldId);
       if (typeof value !== "string") {
         return [
           fieldId,
           {
             ...value,
+            bbox: value.bbox ?? field?.originalBbox ?? {
+              left: 0,
+              top: 0,
+              width: 100,
+              height: 30,
+            },
             backgroundMode: value.backgroundMode ?? "auto",
             listStyle: value.listStyle ?? "none",
             firstLineTab: value.firstLineTab ?? false,
@@ -197,13 +231,16 @@ function normalizeRevision(
           },
         ];
       }
-      const field = normalizedFields.find((item) => item.id === fieldId);
       return [
         fieldId,
         field
-          ? snapshotFromField(field, value)
+          ? {
+              ...snapshotFromField(field, value),
+              bbox: { ...field.originalBbox },
+            }
           : {
               text: value,
+              bbox: { left: 0, top: 0, width: 100, height: 30 },
               fontSize: 12,
               color: "#000000",
               backgroundMode: "auto" as const,
@@ -406,6 +443,7 @@ function ManagedOverlay({
   onOverflow,
   resolvedBackground,
   renderTextPreview,
+  onGeometryChange,
 }: {
   field: ManagedField;
   page: PageDefinition;
@@ -416,8 +454,15 @@ function ManagedOverlay({
   onOverflow: (overflowing: boolean) => void;
   resolvedBackground: string;
   renderTextPreview: boolean;
+  onGeometryChange: (bbox: BoundingBox) => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const geometryGesture = useRef<{
+    kind: "move" | "resize";
+    clientX: number;
+    clientY: number;
+    bbox: BoundingBox;
+  } | null>(null);
   const horizontalScale = previewHorizontalScale(field, scale);
   const autoFit =
     field.fitMode === "shrink" &&
@@ -481,6 +526,66 @@ function ManagedOverlay({
           height: `${(field.previewPatchBox.height / field.bbox.height) * 100}%`,
         }
       : undefined;
+
+  function startGeometryGesture(
+    event: React.PointerEvent<HTMLButtonElement>,
+    kind: "move" | "resize",
+  ) {
+    if (mode !== "edit" || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClick();
+    geometryGesture.current = {
+      kind,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      bbox: { ...field.bbox },
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function updateGeometry(event: React.PointerEvent<HTMLButtonElement>) {
+    const gesture = geometryGesture.current;
+    if (!gesture) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const deltaX = (event.clientX - gesture.clientX) / Math.max(scale, 0.01);
+    const deltaY = (event.clientY - gesture.clientY) / Math.max(scale, 0.01);
+    if (gesture.kind === "move") {
+      onGeometryChange({
+        ...gesture.bbox,
+        left: Math.max(
+          0,
+          Math.min(page.width - gesture.bbox.width, gesture.bbox.left + deltaX),
+        ),
+        top: Math.max(
+          0,
+          Math.min(page.height - gesture.bbox.height, gesture.bbox.top + deltaY),
+        ),
+      });
+      return;
+    }
+    onGeometryChange({
+      ...gesture.bbox,
+      width: Math.max(
+        24,
+        Math.min(page.width - gesture.bbox.left, gesture.bbox.width + deltaX),
+      ),
+      height: Math.max(
+        Math.max(18, field.fontSize * field.lineHeight),
+        Math.min(page.height - gesture.bbox.top, gesture.bbox.height + deltaY),
+      ),
+    });
+  }
+
+  function finishGeometry(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!geometryGesture.current) return;
+    geometryGesture.current = null;
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
 
   return (
     <div
@@ -554,11 +659,40 @@ function ManagedOverlay({
         type="button"
         className="managed-hitbox"
         onClick={onClick}
+        onPointerDown={(event) => startGeometryGesture(event, "move")}
+        onPointerMove={updateGeometry}
+        onPointerUp={finishGeometry}
+        onPointerCancel={finishGeometry}
+        onKeyDown={(event) => {
+          if (mode !== "edit" || !event.key.startsWith("Arrow")) return;
+          event.preventDefault();
+          const step = event.shiftKey ? 10 : 1;
+          const next = { ...field.bbox };
+          if (event.key === "ArrowLeft") next.left -= step;
+          if (event.key === "ArrowRight") next.left += step;
+          if (event.key === "ArrowUp") next.top -= step;
+          if (event.key === "ArrowDown") next.top += step;
+          next.left = Math.max(0, Math.min(page.width - next.width, next.left));
+          next.top = Math.max(0, Math.min(page.height - next.height, next.top));
+          onGeometryChange(next);
+        }}
         aria-label={`Edit ${field.label}`}
         title={field.label}
       >
         <span>{field.label}</span>
       </button>
+      {mode === "edit" && selected && (
+        <button
+          type="button"
+          className="resize-handle"
+          aria-label={`Resize ${field.label}`}
+          title="Drag to resize"
+          onPointerDown={(event) => startGeometryGesture(event, "resize")}
+          onPointerMove={updateGeometry}
+          onPointerUp={finishGeometry}
+          onPointerCancel={finishGeometry}
+        />
+      )}
     </div>
   );
 }
@@ -566,14 +700,18 @@ function ManagedOverlay({
 function PageCanvas({
   page,
   previewImage,
+  createBoxMode,
   candidates,
   fields,
   mode,
   selectedCandidates,
   selectedFieldId,
   onCandidateClick,
+  onDirectCandidateClick,
   onMarqueeSelect,
+  onCreateTextBox,
   onFieldClick,
+  onFieldGeometryChange,
   onOverflow,
 }: PageCanvasProps) {
   const pageRef = useRef<HTMLDivElement>(null);
@@ -621,12 +759,15 @@ function PageCanvas({
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (mode !== "setup" || event.button !== 0) return;
+    const drawingTextBox = mode === "edit" && createBoxMode;
+    if ((mode !== "setup" && !drawingTextBox) || event.button !== 0) return;
     const target = event.target as HTMLElement;
-    if (target.closest(".managed-hitbox")) return;
+    if (target.closest(".managed-hitbox, .resize-handle")) return;
     pointerCandidateId.current =
-      target.closest<HTMLElement>(".candidate-box")?.dataset.candidateId ??
-      null;
+      mode === "setup"
+        ? target.closest<HTMLElement>(".candidate-box")?.dataset.candidateId ??
+          null
+        : null;
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = pointerPosition(event);
     setDragStart(point);
@@ -634,16 +775,37 @@ function PageCanvas({
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!dragStart || mode !== "setup") return;
+    if (
+      !dragStart ||
+      (mode !== "setup" && !(mode === "edit" && createBoxMode))
+    )
+      return;
     setDragCurrent(pointerPosition(event));
   }
 
   function finishMarquee(event: React.PointerEvent<HTMLDivElement>) {
-    if (!dragStart || !dragCurrent || mode !== "setup") return;
+    if (
+      !dragStart ||
+      !dragCurrent ||
+      (mode !== "setup" && !(mode === "edit" && createBoxMode))
+    )
+      return;
     const moved =
       Math.abs(dragCurrent.x - dragStart.x) > 3 ||
       Math.abs(dragCurrent.y - dragStart.y) > 3;
-    if (moved) {
+    if (mode === "edit" && createBoxMode) {
+      const drawn = marquee;
+      onCreateTextBox(
+        drawn && drawn.width >= 20 && drawn.height >= 18
+          ? drawn
+          : {
+              left: Math.min(dragStart.x, page.width - 220),
+              top: Math.min(dragStart.y, page.height - 60),
+              width: 220,
+              height: 60,
+            },
+      );
+    } else if (moved) {
       suppressCandidateClick.current = true;
       onMarqueeSelect([...marqueeCandidateIds], event.shiftKey);
       window.setTimeout(() => {
@@ -705,7 +867,9 @@ function PageCanvas({
     <section className="page-shell" id={`page-${page.number}`}>
       <div className="page-number-label">Page {page.number}</div>
       <div
-        className={`pdf-page ${mode === "setup" ? "setup-mode" : "edit-mode"}`}
+        className={`pdf-page ${mode === "setup" ? "setup-mode" : "edit-mode"} ${
+          createBoxMode ? "create-box-mode" : ""
+        }`}
         ref={pageRef}
         style={{ aspectRatio: `${page.width} / ${page.height}` }}
         onPointerDown={handlePointerDown}
@@ -719,13 +883,15 @@ function PageCanvas({
           alt={`Chapter 37 page ${page.number}`}
           onLoad={() => setImageVersion((current) => current + 1)}
         />
-        {mode === "setup" &&
+        {(mode === "setup" || (mode === "edit" && !createBoxMode)) &&
           candidates.map((candidate) => (
             <button
               key={candidate.id}
               type="button"
               data-candidate-id={candidate.id}
               className={`candidate-box ${
+                mode === "edit" ? "direct-candidate" : ""
+              } ${
                 selectedCandidates.has(candidate.id) ? "is-selected" : ""
               } ${
                 marqueeCandidateIds.has(candidate.id) ? "is-marquee-hit" : ""
@@ -741,13 +907,14 @@ function PageCanvas({
                   event.preventDefault();
                   return;
                 }
-                onCandidateClick(candidate);
+                if (mode === "edit") onDirectCandidateClick(candidate);
+                else onCandidateClick(candidate);
               }}
               aria-label={`Select text: ${candidate.text}`}
               title={candidate.text}
             />
           ))}
-        {mode === "setup" &&
+        {(mode === "setup" || (mode === "edit" && createBoxMode)) &&
           marquee &&
           (marquee.width > 3 || marquee.height > 3) && (
             <div
@@ -776,6 +943,9 @@ function PageCanvas({
                 : field.backgroundColor
             }
             renderTextPreview={!previewImage || mode !== "edit"}
+            onGeometryChange={(bbox) =>
+              onFieldGeometryChange(field.id, bbox)
+            }
           />
         ))}
       </div>
@@ -793,7 +963,7 @@ function EmptyInspector({ mode }: { mode: Mode }) {
       <p>
         {mode === "setup"
           ? "Drag across adjacent text lines, or click them individually. Shift-drag adds to the selection."
-          : "Click a blue managed region in the document to edit its text and preview the result."}
+          : "Click existing PDF text to make it editable, or add a new text box from the page toolbar."}
       </p>
     </div>
   );
@@ -804,6 +974,7 @@ function App() {
   const [fields, setFields] = useState<ManagedField[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [mode, setMode] = useState<Mode>("setup");
+  const [createBoxMode, setCreateBoxMode] = useState(false);
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(
     new Set(),
   );
@@ -974,9 +1145,66 @@ function App() {
   }, [fields, masterDocument, mode]);
 
   function showField(field: ManagedField) {
+    setCreateBoxMode(false);
     setSelectedFieldId(field.id);
     setSelectedCandidates(new Set());
     setInspectorTab("field");
+  }
+
+  function handleDirectCandidateClick(candidate: Candidate) {
+    const label =
+      candidate.text.trim().slice(0, 32) || `Text on page ${candidate.page}`;
+    const field = createManagedField([candidate], label, "#ffffff");
+    setFields((current) => [...current, field]);
+    setSelectedFieldId(field.id);
+    setSelectedCandidates(new Set());
+    setInspectorTab("field");
+    setToast("Text is now editable. Drag its box to move it.");
+  }
+
+  function createTextBox(page: number, bbox: BoundingBox) {
+    const field: ManagedField = {
+      id: crypto.randomUUID(),
+      label: `Text box ${fields.length + 1}`,
+      page,
+      candidateIds: [],
+      bbox: { ...bbox },
+      originalBbox: { ...bbox },
+      sourceBbox: null,
+      originalText: "",
+      currentText: "New text",
+      fontFamily: "Times New Roman",
+      fontSize: 14,
+      originalFontSize: 14,
+      bold: false,
+      color: "#000000",
+      originalColor: "#000000",
+      backgroundMode: "auto",
+      backgroundColor: "#ffffff",
+      originalBackgroundColor: "#ffffff",
+      align: "left",
+      originalAlign: "left",
+      listStyle: "none",
+      originalListStyle: "none",
+      firstLineTab: false,
+      originalFirstLineTab: false,
+      lineHeight: 1.13,
+      originalLineHeight: 1.13,
+      leftIndent: 0,
+      originalLeftIndent: 0,
+      firstLineIndent: 0,
+      originalFirstLineIndent: 0,
+      tabInterval: 54,
+      originalTabInterval: 54,
+      tabStops: [],
+      originalTabStops: [],
+      fitMode: "fixed",
+    };
+    setFields((current) => [...current, field]);
+    setSelectedFieldId(field.id);
+    setCreateBoxMode(false);
+    setInspectorTab("field");
+    setToast("New text box added.");
   }
 
   function handleCandidateClick(candidate: Candidate) {
@@ -1039,6 +1267,12 @@ function App() {
 
   function deleteField(fieldId: string) {
     const field = fields.find((item) => item.id === fieldId);
+    if (mode === "edit" && field?.sourceBbox) {
+      updateField(fieldId, { currentText: "" });
+      setSelectedFieldId(null);
+      setToast(`Removed ${field.label} from the exported layout.`);
+      return;
+    }
     setFields((current) => current.filter((item) => item.id !== fieldId));
     setSelectedFieldId(null);
     setOverflowIds((current) => {
@@ -1046,7 +1280,7 @@ function App() {
       next.delete(fieldId);
       return next;
     });
-    setToast(`Removed ${field?.label ?? "managed field"} from the template.`);
+    setToast(`Deleted ${field?.label ?? "text box"}.`);
   }
 
   function saveRevision() {
@@ -1056,7 +1290,7 @@ function App() {
     }
     const changes = revisionChanges(fields, revisions);
     if (!changes.length) {
-      setToast("There are no unsaved text changes.");
+      setToast("There are no unsaved changes.");
       return;
     }
     const revision: Revision = {
@@ -1078,6 +1312,9 @@ function App() {
       current.map((field) => ({
         ...field,
         currentText: revision.snapshot[field.id]?.text ?? field.originalText,
+        bbox: revision.snapshot[field.id]?.bbox
+          ? { ...revision.snapshot[field.id].bbox }
+          : { ...field.originalBbox },
         fontSize:
           revision.snapshot[field.id]?.fontSize ?? field.originalFontSize,
         color: revision.snapshot[field.id]?.color ?? field.originalColor,
@@ -1211,6 +1448,7 @@ function App() {
             className={mode === "setup" ? "active" : ""}
             onClick={() => {
               setMode("setup");
+              setCreateBoxMode(false);
               setSelectedFieldId(null);
               setInspectorTab("field");
             }}
@@ -1222,12 +1460,12 @@ function App() {
             className={mode === "edit" ? "active" : ""}
             onClick={() => {
               setMode("edit");
+              setCreateBoxMode(false);
               setSelectedCandidates(new Set());
               setInspectorTab("field");
             }}
-            disabled={!fields.length}
           >
-            <FilePenLine /> Edit content
+            <Move /> Layout editor
           </button>
         </div>
 
@@ -1351,15 +1589,32 @@ function App() {
                 <strong>
                   {mode === "setup"
                     ? "Template setup mode"
-                    : "Content editing mode"}
+                    : "Direct layout mode"}
                 </strong>
                 <span>
                   {mode === "setup"
                     ? "Drag across text lines to select them together; Shift-drag adds more."
-                    : "Only managed fields are editable; the original layout stays locked."}
+                    : createBoxMode
+                      ? "Drag anywhere on a page to draw a new text box."
+                      : "Click source text to edit it, then drag or resize its box."}
                 </span>
               </div>
             </div>
+            {mode === "edit" && (
+              <button
+                type="button"
+                className={`button secondary add-text-box ${
+                  createBoxMode ? "active" : ""
+                }`}
+                onClick={() => {
+                  setCreateBoxMode((current) => !current);
+                  setSelectedFieldId(null);
+                }}
+              >
+                <Type />
+                {createBoxMode ? "Cancel text box" : "Add text box"}
+              </button>
+            )}
             {overflowIds.size > 0 && (
               <div className="overflow-banner">
                 <AlertTriangle />
@@ -1381,6 +1636,7 @@ function App() {
                 key={page.number}
                 page={page}
                 previewImage={previewPages[page.number]}
+                createBoxMode={createBoxMode}
                 candidates={manifest.candidates.filter(
                   (candidate) =>
                     candidate.page === page.number &&
@@ -1391,8 +1647,13 @@ function App() {
                 selectedCandidates={selectedCandidates}
                 selectedFieldId={selectedFieldId}
                 onCandidateClick={handleCandidateClick}
+                onDirectCandidateClick={handleDirectCandidateClick}
                 onMarqueeSelect={handleMarqueeSelect}
+                onCreateTextBox={(bbox) => createTextBox(page.number, bbox)}
                 onFieldClick={showField}
+                onFieldGeometryChange={(fieldId, bbox) =>
+                  updateField(fieldId, { bbox })
+                }
                 onOverflow={(fieldId, overflowing) =>
                   setOverflowIds((current) => {
                     if (overflowing === current.has(fieldId)) return current;
@@ -1600,7 +1861,6 @@ function App() {
                       Field name
                       <input
                         value={selectedField.label}
-                        disabled={mode === "edit"}
                         onChange={(event) =>
                           updateField(selectedField.id, {
                             label: event.target.value,
@@ -1739,6 +1999,48 @@ function App() {
                       </label>
                     </div>
 
+                    <fieldset className="geometry-controls">
+                      <legend>Position and size</legend>
+                      <div className="geometry-grid">
+                        {(
+                          [
+                            ["X", "left"],
+                            ["Y", "top"],
+                            ["W", "width"],
+                            ["H", "height"],
+                          ] as const
+                        ).map(([label, property]) => (
+                          <label key={property}>
+                            {label}
+                            <input
+                              type="number"
+                              min={property === "width" || property === "height" ? 1 : 0}
+                              step="1"
+                              value={Math.round(selectedField.bbox[property])}
+                              onChange={(event) =>
+                                updateField(selectedField.id, {
+                                  bbox: {
+                                    ...selectedField.bbox,
+                                    [property]: Math.max(
+                                      property === "width" ||
+                                        property === "height"
+                                        ? 1
+                                        : 0,
+                                      Number(event.target.value),
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <small>
+                        Drag the box to move it. Use the lower-right handle to
+                        resize. Arrow keys nudge the selected box.
+                      </small>
+                    </fieldset>
+
                     <label>
                       Fit behavior
                       <select
@@ -1838,6 +2140,10 @@ function App() {
                           selectedField.originalListStyle ||
                         selectedField.firstLineTab !==
                           selectedField.originalFirstLineTab ||
+                        !boxesEqual(
+                          selectedField.bbox,
+                          selectedField.originalBbox,
+                        ) ||
                         selectedField.lineHeight !==
                           selectedField.originalLineHeight ||
                         selectedField.leftIndent !==
@@ -1854,6 +2160,7 @@ function App() {
                           onClick={() =>
                             updateField(selectedField.id, {
                               currentText: selectedField.originalText,
+                              bbox: { ...selectedField.originalBbox },
                               fontSize: selectedField.originalFontSize,
                               color: selectedField.originalColor,
                               backgroundMode: "auto",
@@ -1876,15 +2183,13 @@ function App() {
                         </button>
                       )}
 
-                    {mode === "setup" && (
-                      <button
-                        type="button"
-                        className="button danger wide"
-                        onClick={() => deleteField(selectedField.id)}
-                      >
-                        <Trash2 /> Remove managed field
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="button danger wide"
+                      onClick={() => deleteField(selectedField.id)}
+                    >
+                      <Trash2 /> Delete text box
+                    </button>
                   </div>
                 </>
               )}

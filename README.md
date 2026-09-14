@@ -26,18 +26,23 @@ process owns either port.
 
 ## Workflow
 
-1. In **Template setup**, click one or more adjacent text lines on the same
-   page.
-2. Give the selection a field name. The editor automatically samples the
-   original background behind the text; a manual solid-color override remains
-   available for unusual regions.
-3. Switch to **Edit content**, click a managed field, and revise its text.
-4. Resolve any overflow warning, then enter an author and note under
+1. Switch to **Layout editor**, then click existing PDF text to make it
+   editable. You can still use **Template setup** to group several adjacent
+   PDF lines into one field.
+2. Drag a selected text box to move it. Drag its lower-right handle to resize,
+   use the arrow keys for precise nudging, or enter exact X, Y, width, and
+   height values in the inspector.
+3. Choose **Add text box**, then drag on a page to create entirely new text.
+4. Edit the copy and formatting in the inspector. The editor removes managed
+   source text from its original location and redraws it from the tracked box
+   geometry while leaving the immutable source PDF untouched.
+5. Resolve any overflow warning, then enter an author and note under
    **History** and save a named revision.
-5. Export the revised PDF, the PDF change log, or a complete JSON backup.
+6. Export the revised PDF, the PDF change log, or a complete JSON backup.
 
 Drafts and revision history are stored in IndexedDB in the current browser.
-The JSON backup is the portable master file.
+The JSON backup is the portable master file and includes each text box's
+source, current, and revision geometry.
 
 ### Bulleted and numbered lists
 
