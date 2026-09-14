@@ -87,6 +87,7 @@ function normalizeField(field: ManagedField): ManagedField {
   const tabInterval = field.tabInterval ?? 54;
   const tabStops = Array.isArray(field.tabStops) ? field.tabStops : [];
   const listStyle = field.listStyle ?? "none";
+  const firstLineTab = field.firstLineTab ?? false;
   return {
     ...field,
     originalColor: field.originalColor ?? field.color,
@@ -96,6 +97,8 @@ function normalizeField(field: ManagedField): ManagedField {
     originalAlign: field.originalAlign ?? field.align ?? "left",
     listStyle,
     originalListStyle: field.originalListStyle ?? listStyle,
+    firstLineTab,
+    originalFirstLineTab: field.originalFirstLineTab ?? firstLineTab,
     lineHeight,
     originalLineHeight: field.originalLineHeight ?? lineHeight,
     leftIndent,
@@ -136,6 +139,7 @@ function snapshotFromField(field: ManagedField, text: string): FieldSnapshot {
     backgroundColor: field.backgroundColor,
     align: field.align,
     listStyle: field.listStyle,
+    firstLineTab: field.firstLineTab,
     lineHeight: field.lineHeight,
     leftIndent: field.leftIndent,
     firstLineIndent: field.firstLineIndent,
@@ -161,6 +165,7 @@ function normalizeRevision(
             ...value,
             backgroundMode: value.backgroundMode ?? "auto",
             listStyle: value.listStyle ?? "none",
+            firstLineTab: value.firstLineTab ?? false,
             lineHeight: value.lineHeight ?? 1.13,
             leftIndent: value.leftIndent ?? 0,
             firstLineIndent: value.firstLineIndent ?? 0,
@@ -182,6 +187,7 @@ function normalizeRevision(
               backgroundColor: "#ffffff",
               align: "left" as const,
               listStyle: "none" as const,
+              firstLineTab: false,
               lineHeight: 1.13,
               leftIndent: 0,
               firstLineIndent: 0,
@@ -256,7 +262,8 @@ function previewHorizontalScale(field: ManagedField, scale: number): number {
   if (
     field.fitMode !== "shrink" ||
     field.currentText.includes("\n") ||
-    field.listStyle !== "none"
+    field.listStyle !== "none" ||
+    field.firstLineTab
   ) {
     return 1;
   }
@@ -298,7 +305,10 @@ function TabbedText({
   }
   return field.currentText.split("\n").map((line, lineIndex) => {
     let currentX =
-      field.leftIndent + (lineIndex === 0 ? field.firstLineIndent : 0);
+      field.leftIndent +
+      (lineIndex === 0
+        ? field.firstLineIndent + (field.firstLineTab ? field.tabInterval : 0)
+        : 0);
     const segments = line.split("\t").map((text, segmentIndex) => {
       if (segmentIndex > 0) currentX = nextTabStop(field, currentX);
       const left = currentX;
@@ -385,7 +395,8 @@ function ManagedOverlay({
   const autoFit =
     field.fitMode === "shrink" &&
     !field.currentText.includes("\n") &&
-    field.listStyle === "none";
+    field.listStyle === "none" &&
+    !field.firstLineTab;
   const changed =
     field.currentText !== field.originalText ||
     Math.abs(field.fontSize - field.originalFontSize) > 0.01 ||
@@ -393,6 +404,7 @@ function ManagedOverlay({
     field.backgroundMode !== "auto" ||
     field.align !== field.originalAlign ||
     field.listStyle !== field.originalListStyle ||
+    field.firstLineTab !== field.originalFirstLineTab ||
     Math.abs(field.lineHeight - field.originalLineHeight) > 0.001 ||
     Math.abs(field.leftIndent - field.originalLeftIndent) > 0.01 ||
     Math.abs(field.firstLineIndent - field.originalFirstLineIndent) > 0.01 ||
@@ -419,6 +431,7 @@ function ManagedOverlay({
     field.currentText,
     field.fontSize,
     field.listStyle,
+    field.firstLineTab,
     field.lineHeight,
     field.leftIndent,
     field.firstLineIndent,
@@ -490,7 +503,11 @@ function ManagedOverlay({
               hasTabs || hasList ? 0 : `${field.leftIndent * scale}px`,
             textIndent: hasTabs || hasList
               ? 0
-              : `${field.firstLineIndent * scale}px`,
+              : `${
+                  (field.firstLineIndent +
+                    (field.firstLineTab ? field.tabInterval : 0)) *
+                  scale
+                }px`,
             tabSize: `${field.tabInterval * scale}px`,
             right: autoFit ? "auto" : 0,
             width: autoFit ? `${100 / horizontalScale}%` : "auto",
@@ -977,6 +994,9 @@ function App() {
         align: revision.snapshot[field.id]?.align ?? field.originalAlign,
         listStyle:
           revision.snapshot[field.id]?.listStyle ?? field.originalListStyle,
+        firstLineTab:
+          revision.snapshot[field.id]?.firstLineTab ??
+          field.originalFirstLineTab,
         lineHeight:
           revision.snapshot[field.id]?.lineHeight ?? field.originalLineHeight,
         leftIndent:
@@ -1546,6 +1566,27 @@ function App() {
                       )}
                     </div>
 
+                    {selectedField.listStyle === "none" && (
+                      <button
+                        type="button"
+                        className={`first-line-tab-toggle ${
+                          selectedField.firstLineTab ? "active" : ""
+                        }`}
+                        aria-pressed={selectedField.firstLineTab}
+                        onClick={() =>
+                          updateField(selectedField.id, {
+                            firstLineTab: !selectedField.firstLineTab,
+                          })
+                        }
+                      >
+                        <span>
+                          <strong>Indent first line</strong>
+                          <small>Move only the first line in by one tab.</small>
+                        </span>
+                        <i aria-hidden="true" />
+                      </button>
+                    )}
+
                     {mode === "edit" && (
                       <label>
                         Text
@@ -1693,6 +1734,8 @@ function App() {
                           selectedField.originalAlign ||
                         selectedField.listStyle !==
                           selectedField.originalListStyle ||
+                        selectedField.firstLineTab !==
+                          selectedField.originalFirstLineTab ||
                         selectedField.lineHeight !==
                           selectedField.originalLineHeight ||
                         selectedField.leftIndent !==
@@ -1716,6 +1759,8 @@ function App() {
                                 selectedField.originalBackgroundColor,
                               align: selectedField.originalAlign,
                               listStyle: selectedField.originalListStyle,
+                              firstLineTab:
+                                selectedField.originalFirstLineTab,
                               lineHeight: selectedField.originalLineHeight,
                               leftIndent: selectedField.originalLeftIndent,
                               firstLineIndent:

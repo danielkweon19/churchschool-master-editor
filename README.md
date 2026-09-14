@@ -44,6 +44,8 @@ The JSON backup is the portable master file.
 Choose **Plain text**, **Bullets**, or **Numbered** at the top of the field
 editor. For a list, enter one item on each line. The preview and PDF export add
 the markers and indentation automatically while keeping the text searchable.
+For regular paragraphs, enable **Indent first line** to move only the opening
+line inward by one standard tab.
 
 ## Validation
 

@@ -63,6 +63,8 @@ export interface ManagedField {
   originalAlign: "left" | "center" | "right";
   listStyle: "none" | "bullet" | "number";
   originalListStyle: "none" | "bullet" | "number";
+  firstLineTab: boolean;
+  originalFirstLineTab: boolean;
   lineHeight: number;
   originalLineHeight: number;
   leftIndent: number;
@@ -86,6 +88,7 @@ export interface FieldSnapshot {
   backgroundColor: string;
   align: "left" | "center" | "right";
   listStyle: "none" | "bullet" | "number";
+  firstLineTab: boolean;
   lineHeight: number;
   leftIndent: number;
   firstLineIndent: number;

@@ -319,7 +319,10 @@ def _insert_paragraph_text(
 
     font_size = field.font_size * scale
     left_indent = field.left_indent * scale
-    first_indent = field.first_line_indent * scale
+    first_indent = (
+        field.first_line_indent
+        + (field.tab_interval if field.first_line_tab else 0)
+    ) * scale
     right_edge = rect.x1
     line_advance = font_size * field.line_height
     layout: list[list[tuple[float, str]]] = []
@@ -478,6 +481,7 @@ def _was_changed(field: ManagedField) -> bool:
         or field.background_color != field.original_background_color
         or field.align != field.original_align
         or field.list_style != field.original_list_style
+        or field.first_line_tab != field.original_first_line_tab
         or abs(field.line_height - field.original_line_height) > 0.001
         or abs(field.left_indent - field.original_left_indent) > 0.01
         or abs(field.first_line_indent - field.original_first_line_indent)
@@ -580,6 +584,7 @@ def export_pdf(document: MasterDocument) -> bytes:
                 "\t" in field.current_text
                 or abs(field.left_indent) > 0.01
                 or abs(field.first_line_indent) > 0.01
+                or field.first_line_tab
                 or bool(field.tab_stops)
             )
             if uses_paragraph_layout:

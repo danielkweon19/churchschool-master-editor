@@ -42,6 +42,10 @@ class ManagedField(BaseModel):
     original_list_style: Literal["none", "bullet", "number"] = Field(
         default="none", alias="originalListStyle"
     )
+    first_line_tab: bool = Field(default=False, alias="firstLineTab")
+    original_first_line_tab: bool = Field(
+        default=False, alias="originalFirstLineTab"
+    )
     line_height: float = Field(default=1.13, alias="lineHeight", ge=0.8, le=3)
     original_line_height: float = Field(
         default=1.13, alias="originalLineHeight", ge=0.8, le=3
@@ -101,6 +105,7 @@ class FieldSnapshot(BaseModel):
     list_style: Literal["none", "bullet", "number"] = Field(
         default="none", alias="listStyle"
     )
+    first_line_tab: bool = Field(default=False, alias="firstLineTab")
     line_height: float = Field(default=1.13, alias="lineHeight", ge=0.8, le=3)
     left_indent: float = Field(default=0, alias="leftIndent", ge=0)
     first_line_indent: float = Field(default=0, alias="firstLineIndent")

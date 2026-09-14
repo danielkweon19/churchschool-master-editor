@@ -274,6 +274,31 @@ class PdfServiceTest(unittest.TestCase):
                 )
                 exported.close()
 
+    def test_indents_only_the_first_line_by_one_tab(self) -> None:
+        document = self.document()
+        field = document.fields[0]
+        field.current_text = "Indented first\nSecond line"
+        field.first_line_tab = True
+        field.original_first_line_tab = False
+        document.revisions = []
+
+        content = export_pdf(document)
+        exported = fitz.open(stream=content, filetype="pdf")
+        words = exported[0].get_text("words")
+        indented = next(word for word in words if word[4] == "Indented")
+        second = next(word for word in words if word[4] == "Second")
+        self.assertAlmostEqual(
+            indented[0] - second[0],
+            field.tab_interval / document.coordinate_scale,
+            delta=0.75,
+        )
+        self.assertAlmostEqual(
+            second[0],
+            field.bbox.left / document.coordinate_scale,
+            delta=0.75,
+        )
+        exported.close()
+
 
 if __name__ == "__main__":
     unittest.main()

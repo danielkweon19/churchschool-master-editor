@@ -117,6 +117,8 @@ export function createManagedField(
     originalAlign: "left",
     listStyle: "none",
     originalListStyle: "none",
+    firstLineTab: false,
+    originalFirstLineTab: false,
     lineHeight: paragraph.lineHeight,
     originalLineHeight: paragraph.lineHeight,
     leftIndent: paragraph.leftIndent,
@@ -143,6 +145,7 @@ function sourceSnapshot(field: ManagedField): FieldSnapshot {
     backgroundColor: field.originalBackgroundColor,
     align: field.originalAlign,
     listStyle: field.originalListStyle,
+    firstLineTab: field.originalFirstLineTab,
     lineHeight: field.originalLineHeight,
     leftIndent: field.originalLeftIndent,
     firstLineIndent: field.originalFirstLineIndent,
@@ -160,6 +163,7 @@ function currentSnapshot(field: ManagedField): FieldSnapshot {
     backgroundColor: field.backgroundColor,
     align: field.align,
     listStyle: field.listStyle,
+    firstLineTab: field.firstLineTab,
     lineHeight: field.lineHeight,
     leftIndent: field.leftIndent,
     firstLineIndent: field.firstLineIndent,
@@ -178,9 +182,10 @@ function styleSummary(snapshot: FieldSnapshot): string {
     : "";
   const list =
     snapshot.listStyle === "none" ? "" : `, ${snapshot.listStyle} list`;
+  const firstLineTab = snapshot.firstLineTab ? ", first-line tab" : "";
   return `${snapshot.fontSize} source units, line ${snapshot.lineHeight.toFixed(
     2,
-  )}, indents ${snapshot.leftIndent}/${snapshot.firstLineIndent}${stops}${list}, ${
+  )}, indents ${snapshot.leftIndent}/${snapshot.firstLineIndent}${stops}${list}${firstLineTab}, ${
     snapshot.align
   }, text ${snapshot.color}, ${background}`;
 }

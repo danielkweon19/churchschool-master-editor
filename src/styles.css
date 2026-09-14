@@ -876,6 +876,74 @@ select:focus-visible {
   height: 14px;
 }
 
+.first-line-tab-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 9px 11px;
+  border: 1px solid #d5e0e2;
+  border-radius: 9px;
+  color: #5c6d72;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.first-line-tab-toggle > span,
+.first-line-tab-toggle strong,
+.first-line-tab-toggle small {
+  display: block;
+}
+
+.first-line-tab-toggle strong {
+  color: #405459;
+  font-size: 10px;
+}
+
+.first-line-tab-toggle small {
+  margin-top: 3px;
+  color: #839095;
+  font-size: 9px;
+}
+
+.first-line-tab-toggle > i {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: #cbd7d9;
+  transition: background 120ms ease;
+}
+
+.first-line-tab-toggle > i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgb(21 53 59 / 20%);
+  content: "";
+  transition: transform 120ms ease;
+}
+
+.first-line-tab-toggle.active {
+  border-color: #9ed5dc;
+  background: var(--cyan-50);
+}
+
+.first-line-tab-toggle.active > i {
+  background: var(--teal-600);
+}
+
+.first-line-tab-toggle.active > i::after {
+  transform: translateX(14px);
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
