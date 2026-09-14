@@ -23,6 +23,7 @@ import {
   Settings2,
   Trash2,
   Type,
+  Undo2,
   Upload,
   X,
 } from "lucide-react";
@@ -59,6 +60,24 @@ import {
 
 type InspectorTab = "field" | "history";
 const FIRST_LINE_TAB_EM = 2.5;
+const UNDO_GROUP_DELAY_MS = 450;
+const MAX_UNDO_STEPS = 50;
+
+interface UndoSnapshot {
+  fields: ManagedField[];
+  revisions: Revision[];
+}
+
+function createUndoSnapshot(
+  fields: ManagedField[],
+  revisions: Revision[],
+): { snapshot: UndoSnapshot; signature: string } {
+  const signature = JSON.stringify({ fields, revisions });
+  return {
+    snapshot: JSON.parse(signature) as UndoSnapshot,
+    signature,
+  };
+}
 
 interface PageCanvasProps {
   page: PageDefinition;
@@ -992,7 +1011,13 @@ function App() {
   const [previewStatus, setPreviewStatus] = useState<
     "idle" | "rendering" | "ready" | "error"
   >("idle");
+  const [canUndo, setCanUndo] = useState(false);
   const previewPagesRef = useRef<Record<number, string>>({});
+  const undoStackRef = useRef<UndoSnapshot[]>([]);
+  const undoCurrentRef = useRef<UndoSnapshot | null>(null);
+  const undoCurrentSignatureRef = useRef("");
+  const undoPendingRef = useRef<UndoSnapshot | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   function replacePreviewPages(next: Record<number, string>) {
@@ -1056,6 +1081,55 @@ function App() {
     const timeout = window.setTimeout(() => setToast(null), 3600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  function commitPendingUndo() {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const pending = undoPendingRef.current;
+    if (!pending) return;
+    undoStackRef.current = [
+      ...undoStackRef.current.slice(-(MAX_UNDO_STEPS - 1)),
+      pending,
+    ];
+    undoPendingRef.current = null;
+    setCanUndo(true);
+  }
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const next = createUndoSnapshot(fields, revisions);
+    if (!undoCurrentRef.current) {
+      undoCurrentRef.current = next.snapshot;
+      undoCurrentSignatureRef.current = next.signature;
+      return;
+    }
+    if (next.signature === undoCurrentSignatureRef.current) return;
+
+    if (!undoPendingRef.current) {
+      undoPendingRef.current = undoCurrentRef.current;
+    }
+    undoCurrentRef.current = next.snapshot;
+    undoCurrentSignatureRef.current = next.signature;
+    setCanUndo(true);
+
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+    }
+    undoTimerRef.current = window.setTimeout(() => {
+      commitPendingUndo();
+    }, UNDO_GROUP_DELAY_MS);
+  }, [fields, hydrated, revisions]);
+
+  useEffect(
+    () => () => {
+      if (undoTimerRef.current !== null) {
+        window.clearTimeout(undoTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const managedCandidateIds = useMemo(
     () => new Set(fields.flatMap((field) => field.candidateIds)),
@@ -1302,6 +1376,7 @@ function App() {
       changes,
       snapshot: snapshotFields(fields),
     };
+    commitPendingUndo();
     setRevisions((current) => [...current, revision]);
     setRevisionNote("");
     setToast(`Saved revision ${revision.number}.`);
@@ -1402,6 +1477,7 @@ function App() {
       ) {
         throw new Error("This backup does not match the Chapter 37 source.");
       }
+      commitPendingUndo();
       const normalizedFields = document.fields.map(normalizeField);
       setFields(normalizedFields);
       setRevisions(
@@ -1424,6 +1500,7 @@ function App() {
       "Reset everything?\n\nThis will remove all managed text boxes, edits, and revision history from this browser. The original PDF will not be changed.",
     );
     if (!confirmed) return;
+    commitPendingUndo();
 
     const resetState: PersistedState = {
       fields: [],
@@ -1454,6 +1531,39 @@ function App() {
     } catch {
       setToast("The editor was reset, but the local reset could not be saved.");
     }
+  }
+
+  function undoLastChange() {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+
+    const target =
+      undoPendingRef.current ?? undoStackRef.current.at(-1) ?? null;
+    if (!target) return;
+
+    if (undoPendingRef.current) {
+      undoPendingRef.current = null;
+    } else {
+      undoStackRef.current = undoStackRef.current.slice(0, -1);
+    }
+
+    const restored = createUndoSnapshot(target.fields, target.revisions);
+    undoCurrentRef.current = restored.snapshot;
+    undoCurrentSignatureRef.current = restored.signature;
+    setFields(restored.snapshot.fields);
+    setRevisions(restored.snapshot.revisions);
+    setSelectedFieldId(null);
+    setSelectedCandidates(new Set());
+    setOverflowIds(new Set());
+    setCreateBoxMode(false);
+    setInspectorTab("field");
+    setMode(restored.snapshot.fields.length ? "edit" : "setup");
+    replacePreviewPages({});
+    setPreviewStatus("idle");
+    setCanUndo(undoStackRef.current.length > 0);
+    setToast("Undid the last change.");
   }
 
   if (!manifest) {
@@ -1516,6 +1626,15 @@ function App() {
             )}
             {saveStatus === "saving" ? "Saving" : "Saved locally"}
           </div>
+          <button
+            type="button"
+            className="button secondary undo-button"
+            onClick={undoLastChange}
+            disabled={!canUndo}
+            title="Undo last change"
+          >
+            <Undo2 /> Undo
+          </button>
           <button
             type="button"
             className="button secondary"
