@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { Candidate, ManagedField } from "./types";
 import {
-  candidatesInsideMarquee,
   createManagedField,
   insertAtSelection,
+  paragraphCandidates,
+  paragraphText,
   revisionChanges,
   snapshotFields,
   unionBoxes,
@@ -60,23 +61,91 @@ describe("document helpers", () => {
     expect(field.firstLineIndent).toBe(0);
   });
 
-  it("selects text lines substantially crossed by a drag marquee", () => {
+  it("groups adjacent paragraph lines but stops at paragraph gaps", () => {
+    const paragraphLines: Candidate[] = [
+      {
+        ...candidates[0],
+        id: "p1",
+        text: "The first paragraph begins here",
+        bbox: { left: 70, top: 100, width: 300, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "p2",
+        text: "and continues on its second line.",
+        bbox: { left: 70, top: 116, width: 280, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "p3",
+        text: "A new paragraph starts after a gap.",
+        bbox: { left: 70, top: 149, width: 290, height: 18 },
+      },
+    ];
     expect(
-      candidatesInsideMarquee(candidates, {
-        left: 0,
-        top: 20,
-        width: 130,
-        height: 30,
-      }),
-    ).toEqual(["a", "b"]);
+      paragraphCandidates(paragraphLines[1], paragraphLines).map(
+        (candidate) => candidate.id,
+      ),
+    ).toEqual(["p1", "p2"]);
+    expect(paragraphText(paragraphLines.slice(0, 2))).toBe(
+      "The first paragraph begins here and continues on its second line.",
+    );
+  });
+
+  it("keeps separate numbered items from merging", () => {
+    const numberedLines: Candidate[] = [
+      {
+        ...candidates[0],
+        id: "one",
+        text: "1. First question starts here",
+        bbox: { left: 70, top: 100, width: 300, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "one-more",
+        text: "and continues on another line.",
+        bbox: { left: 88, top: 116, width: 280, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "two",
+        text: "2. Second question starts here",
+        bbox: { left: 70, top: 132, width: 290, height: 18 },
+      },
+    ];
     expect(
-      candidatesInsideMarquee(candidates, {
-        left: 0,
-        top: 0,
-        width: 10,
-        height: 10,
-      }),
-    ).toEqual([]);
+      paragraphCandidates(numberedLines[1], numberedLines).map(
+        (candidate) => candidate.id,
+      ),
+    ).toEqual(["one", "one-more"]);
+  });
+
+  it("continues a paragraph past interleaved text in another column", () => {
+    const columnLines: Candidate[] = [
+      {
+        ...candidates[0],
+        id: "left-one",
+        text: "Left column first line",
+        bbox: { left: 70, top: 100, width: 280, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "right-column",
+        text: "Unrelated right column text",
+        bbox: { left: 440, top: 108, width: 150, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "left-two",
+        text: "Left column second line",
+        bbox: { left: 70, top: 116, width: 270, height: 18 },
+      },
+    ];
+    expect(
+      paragraphCandidates(columnLines[0], columnLines).map(
+        (candidate) => candidate.id,
+      ),
+    ).toEqual(["left-one", "left-two"]);
   });
 
   it("compares drafts with the last saved snapshot", () => {

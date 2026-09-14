@@ -1,5 +1,3 @@
-export type Mode = "setup" | "edit";
-
 export interface BoundingBox {
   left: number;
   top: number;

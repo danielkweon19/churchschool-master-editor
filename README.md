@@ -26,19 +26,19 @@ process owns either port.
 
 ## Workflow
 
-1. Switch to **Layout editor**, then click existing PDF text and type directly
-   inside its box on the page. The side panel is a formatting and layout
-   toolbar rather than a separate text editor. You can still use **Template
-   setup** to group several adjacent PDF lines into one field.
+1. Click existing PDF text and type directly inside its box on the page. The
+   editor automatically groups adjacent lines from the same paragraph when
+   spacing, typography, and column position match. Numbered items and headings
+   remain separate.
 2. Drag the **Move** grip above selected text to reposition it. Drag its
    lower-right handle to resize, use the arrow keys for precise nudging, or
    enter exact X, Y, width, and height values in the toolbar.
 3. Choose **Add text box**, then drag on a page to create entirely new text.
    The caret appears in the new box so you can type immediately. Press Tab to
    insert a tracked tab character, and click empty page space to deselect.
-4. Edit the copy on the page and adjust formatting in the toolbar. The editor removes managed
-   source text from its original location and redraws it from the tracked box
-   geometry while leaving the immutable source PDF untouched.
+4. Edit the copy on the page and adjust formatting in the toolbar. The editor
+   removes managed source text from its original location and redraws it from
+   the tracked box geometry while leaving the immutable source PDF untouched.
 5. Resolve any overflow warning, then enter an author and note under
    **History** and save a named revision.
 6. Export the revised PDF, the PDF change log, or a complete JSON backup.
@@ -49,8 +49,8 @@ source, current, and revision geometry.
 
 ### Bulleted and numbered lists
 
-Choose **Plain text**, **Bullets**, or **Numbered** at the top of the field
-editor. For a list, enter one item on each line. The preview and PDF export add
+Choose **Plain text**, **Bullets**, or **Numbered** in the toolbar. For a list,
+enter one item on each line. The preview and PDF export add
 the markers and indentation automatically while keeping the text searchable.
 For regular paragraphs, enable **Indent first line** to move only the opening
 line inward by a small paragraph-style indent.

@@ -15,12 +15,9 @@ import {
   ListOrdered,
   LoaderCircle,
   Move,
-  MousePointer2,
   PanelRight,
-  Plus,
   RotateCcw,
   Save,
-  Settings2,
   Trash2,
   Type,
   Undo2,
@@ -42,17 +39,17 @@ import type {
   FieldSnapshot,
   ManagedField,
   MasterDocument,
-  Mode,
   PageDefinition,
   PersistedState,
   Revision,
   SourceManifest,
 } from "./types";
 import {
-  candidatesInsideMarquee,
   createManagedField,
   downloadBlob,
   insertAtSelection,
+  paragraphCandidates,
+  paragraphText,
   responseError,
   revisionChanges,
   slugify,
@@ -86,12 +83,8 @@ interface PageCanvasProps {
   createBoxMode: boolean;
   candidates: Candidate[];
   fields: ManagedField[];
-  mode: Mode;
-  selectedCandidates: Set<string>;
   selectedFieldId: string | null;
-  onCandidateClick: (candidate: Candidate) => void;
   onDirectCandidateClick: (candidate: Candidate) => void;
-  onMarqueeSelect: (candidateIds: string[], additive: boolean) => void;
   onCreateTextBox: (bbox: BoundingBox) => void;
   onFieldClick: (field: ManagedField) => void;
   onClearFieldSelection: () => void;
@@ -459,7 +452,6 @@ function ManagedOverlay({
   field,
   page,
   scale,
-  mode,
   selected,
   onClick,
   onOverflow,
@@ -471,7 +463,6 @@ function ManagedOverlay({
   field: ManagedField;
   page: PageDefinition;
   scale: number;
-  mode: Mode;
   selected: boolean;
   onClick: () => void;
   onOverflow: (overflowing: boolean) => void;
@@ -497,7 +488,7 @@ function ManagedOverlay({
   const changed = fieldWasChanged(field);
   const hasTabs = field.currentText.includes("\t");
   const hasList = field.listStyle !== "none";
-  const showInlineEditor = mode === "edit" && selected;
+  const showInlineEditor = selected;
 
   useLayoutEffect(() => {
     if (!showInlineEditor) return;
@@ -573,7 +564,7 @@ function ManagedOverlay({
     event: React.PointerEvent<HTMLButtonElement>,
     kind: "move" | "resize",
   ) {
-    if (mode !== "edit" || event.button !== 0) return;
+    if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     onClick();
@@ -633,9 +624,9 @@ function ManagedOverlay({
     <div
       className={`managed-overlay ${selected ? "is-selected" : ""} ${
         changed ? "is-changed" : ""
-      } ${mode === "setup" ? "is-setup" : ""} ${
-        field.previewPatch ? "has-artwork-patch" : ""
-      } ${showInlineEditor ? "is-inline-editing" : ""}`}
+      } ${field.previewPatch ? "has-artwork-patch" : ""} ${
+        showInlineEditor ? "is-inline-editing" : ""
+      }`}
       style={position}
     >
       {field.previewPatch &&
@@ -821,12 +812,8 @@ function PageCanvas({
   createBoxMode,
   candidates,
   fields,
-  mode,
-  selectedCandidates,
   selectedFieldId,
-  onCandidateClick,
   onDirectCandidateClick,
-  onMarqueeSelect,
   onCreateTextBox,
   onFieldClick,
   onClearFieldSelection,
@@ -848,10 +835,7 @@ function PageCanvas({
     x: number;
     y: number;
   } | null>(null);
-  const suppressCandidateClick = useRef(false);
-  const pointerCandidateId = useRef<string | null>(null);
-  const activePageImage =
-    mode === "edit" && previewImage ? previewImage : page.image;
+  const activePageImage = previewImage ?? page.image;
 
   const marquee = useMemo<BoundingBox | null>(() => {
     if (!dragStart || !dragCurrent) return null;
@@ -862,14 +846,6 @@ function PageCanvas({
       height: Math.abs(dragCurrent.y - dragStart.y),
     };
   }, [dragCurrent, dragStart]);
-  const marqueeCandidateIds = useMemo(
-    () =>
-      marquee && marquee.width > 3 && marquee.height > 3
-        ? new Set(candidatesInsideMarquee(candidates, marquee))
-        : new Set<string>(),
-    [candidates, marquee],
-  );
-
   function pointerPosition(event: React.PointerEvent<HTMLDivElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
     return {
@@ -880,21 +856,16 @@ function PageCanvas({
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    const drawingTextBox = mode === "edit" && createBoxMode;
+    const drawingTextBox = createBoxMode;
     const target = event.target as HTMLElement;
-    if (mode === "edit" && !drawingTextBox) {
+    if (!drawingTextBox) {
       if (!target.closest(".managed-overlay, .candidate-box")) {
         onClearFieldSelection();
       }
       return;
     }
-    if (mode !== "setup" && !drawingTextBox) return;
+    if (!drawingTextBox) return;
     if (target.closest(".managed-hitbox, .resize-handle")) return;
-    pointerCandidateId.current =
-      mode === "setup"
-        ? target.closest<HTMLElement>(".candidate-box")?.dataset.candidateId ??
-          null
-        : null;
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = pointerPosition(event);
     setDragStart(point);
@@ -902,55 +873,23 @@ function PageCanvas({
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (
-      !dragStart ||
-      (mode !== "setup" && !(mode === "edit" && createBoxMode))
-    )
-      return;
+    if (!dragStart || !createBoxMode) return;
     setDragCurrent(pointerPosition(event));
   }
 
   function finishMarquee(event: React.PointerEvent<HTMLDivElement>) {
-    if (
-      !dragStart ||
-      !dragCurrent ||
-      (mode !== "setup" && !(mode === "edit" && createBoxMode))
-    )
-      return;
-    const moved =
-      Math.abs(dragCurrent.x - dragStart.x) > 3 ||
-      Math.abs(dragCurrent.y - dragStart.y) > 3;
-    if (mode === "edit" && createBoxMode) {
-      const drawn = marquee;
-      onCreateTextBox(
-        drawn && drawn.width >= 20 && drawn.height >= 18
-          ? drawn
-          : {
-              left: Math.min(dragStart.x, page.width - 220),
-              top: Math.min(dragStart.y, page.height - 60),
-              width: 220,
-              height: 60,
-            },
-      );
-    } else if (moved) {
-      suppressCandidateClick.current = true;
-      onMarqueeSelect([...marqueeCandidateIds], event.shiftKey);
-      window.setTimeout(() => {
-        suppressCandidateClick.current = false;
-      }, 0);
-    } else if (pointerCandidateId.current) {
-      const candidate = candidates.find(
-        (item) => item.id === pointerCandidateId.current,
-      );
-      if (candidate) {
-        suppressCandidateClick.current = true;
-        onCandidateClick(candidate);
-        window.setTimeout(() => {
-          suppressCandidateClick.current = false;
-        }, 0);
-      }
-    }
-    pointerCandidateId.current = null;
+    if (!dragStart || !dragCurrent || !createBoxMode) return;
+    const drawn = marquee;
+    onCreateTextBox(
+      drawn && drawn.width >= 20 && drawn.height >= 18
+        ? drawn
+        : {
+            left: Math.min(dragStart.x, page.width - 220),
+            top: Math.min(dragStart.y, page.height - 60),
+            width: 220,
+            height: 60,
+          },
+    );
     setDragStart(null);
     setDragCurrent(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -994,7 +933,7 @@ function PageCanvas({
     <section className="page-shell" id={`page-${page.number}`}>
       <div className="page-number-label">Page {page.number}</div>
       <div
-        className={`pdf-page ${mode === "setup" ? "setup-mode" : "edit-mode"} ${
+        className={`pdf-page edit-mode ${
           createBoxMode ? "create-box-mode" : ""
         }`}
         ref={pageRef}
@@ -1010,38 +949,25 @@ function PageCanvas({
           alt={`Chapter 37 page ${page.number}`}
           onLoad={() => setImageVersion((current) => current + 1)}
         />
-        {(mode === "setup" || (mode === "edit" && !createBoxMode)) &&
+        {!createBoxMode &&
           candidates.map((candidate) => (
             <button
               key={candidate.id}
               type="button"
               data-candidate-id={candidate.id}
-              className={`candidate-box ${
-                mode === "edit" ? "direct-candidate" : ""
-              } ${
-                selectedCandidates.has(candidate.id) ? "is-selected" : ""
-              } ${
-                marqueeCandidateIds.has(candidate.id) ? "is-marquee-hit" : ""
-              }`}
+              className="candidate-box direct-candidate"
               style={{
                 left: `${(candidate.bbox.left / page.width) * 100}%`,
                 top: `${(candidate.bbox.top / page.height) * 100}%`,
                 width: `${(candidate.bbox.width / page.width) * 100}%`,
                 height: `${(candidate.bbox.height / page.height) * 100}%`,
               }}
-              onClick={(event) => {
-                if (suppressCandidateClick.current) {
-                  event.preventDefault();
-                  return;
-                }
-                if (mode === "edit") onDirectCandidateClick(candidate);
-                else onCandidateClick(candidate);
-              }}
+              onClick={() => onDirectCandidateClick(candidate)}
               aria-label={`Select text: ${candidate.text}`}
               title={candidate.text}
             />
           ))}
-        {(mode === "setup" || (mode === "edit" && createBoxMode)) &&
+        {createBoxMode &&
           marquee &&
           (marquee.width > 3 || marquee.height > 3) && (
             <div
@@ -1060,7 +986,6 @@ function PageCanvas({
             field={field}
             page={page}
             scale={scale}
-            mode={mode}
             selected={field.id === selectedFieldId}
             onClick={() => onFieldClick(field)}
             onOverflow={(overflowing) => onOverflow(field.id, overflowing)}
@@ -1069,7 +994,7 @@ function PageCanvas({
                 ? autoBackgrounds[field.id] ?? field.backgroundColor
                 : field.backgroundColor
             }
-            renderTextPreview={!previewImage || mode !== "edit"}
+            renderTextPreview={!previewImage}
             onTextChange={(text) => onFieldTextChange(field.id, text)}
             onGeometryChange={(bbox) =>
               onFieldGeometryChange(field.id, bbox)
@@ -1081,17 +1006,16 @@ function PageCanvas({
   );
 }
 
-function EmptyInspector({ mode }: { mode: Mode }) {
+function EmptyInspector() {
   return (
     <div className="empty-inspector">
       <div className="empty-icon">
-        {mode === "setup" ? <MousePointer2 /> : <FilePenLine />}
+        <FilePenLine />
       </div>
-      <h3>{mode === "setup" ? "Select text lines" : "Choose a managed field"}</h3>
+      <h3>Choose text on the PDF</h3>
       <p>
-        {mode === "setup"
-          ? "Drag across adjacent text lines, or click them individually. Shift-drag adds to the selection."
-          : "Click existing PDF text and type directly on the page. The side panel is your formatting toolbar."}
+        Click any line to edit its whole paragraph when possible. The side
+        panel is your formatting toolbar.
       </p>
     </div>
   );
@@ -1101,14 +1025,9 @@ function App() {
   const [manifest, setManifest] = useState<SourceManifest | null>(null);
   const [fields, setFields] = useState<ManagedField[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
-  const [mode, setMode] = useState<Mode>("setup");
   const [createBoxMode, setCreateBoxMode] = useState(false);
-  const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(
-    new Set(),
-  );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("field");
-  const [fieldLabel, setFieldLabel] = useState("");
   const [author, setAuthor] = useState("");
   const [revisionNote, setRevisionNote] = useState("");
   const [overflowIds, setOverflowIds] = useState<Set<string>>(new Set());
@@ -1156,7 +1075,6 @@ function App() {
           ),
         );
         setAuthor(persisted.author);
-        if (persisted.fields.length) setMode("edit");
       }
       setHydrated(true);
     }
@@ -1244,13 +1162,6 @@ function App() {
     () => new Set(fields.flatMap((field) => field.candidateIds)),
     [fields],
   );
-  const selectedCandidateObjects = useMemo(
-    () =>
-      manifest?.candidates.filter((candidate) =>
-        selectedCandidates.has(candidate.id),
-      ) ?? [],
-    [manifest, selectedCandidates],
-  );
   const selectedField =
     fields.find((field) => field.id === selectedFieldId) ?? null;
   const pendingChanges = revisionChanges(fields, revisions);
@@ -1282,7 +1193,7 @@ function App() {
         fields.filter(fieldWasChanged).map((field) => field.page),
       ),
     ];
-    if (!masterDocument || mode !== "edit" || !changedPages.length) {
+    if (!masterDocument || !changedPages.length) {
       replacePreviewPages({});
       setPreviewStatus("idle");
       return;
@@ -1325,24 +1236,42 @@ function App() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [fields, masterDocument, mode]);
+  }, [fields, masterDocument]);
 
   function showField(field: ManagedField) {
     setCreateBoxMode(false);
     setSelectedFieldId(field.id);
-    setSelectedCandidates(new Set());
     setInspectorTab("field");
   }
 
   function handleDirectCandidateClick(candidate: Candidate) {
+    if (!manifest) return;
+    const availableCandidates = manifest.candidates.filter(
+      (item) =>
+        item.page === candidate.page && !managedCandidateIds.has(item.id),
+    );
+    const groupedCandidates = paragraphCandidates(
+      candidate,
+      availableCandidates,
+    );
+    const groupedText = paragraphText(groupedCandidates);
     const label =
-      candidate.text.trim().slice(0, 32) || `Text on page ${candidate.page}`;
-    const field = createManagedField([candidate], label, "#ffffff");
+      groupedText.slice(0, 32) || `Text on page ${candidate.page}`;
+    const field = createManagedField(
+      groupedCandidates,
+      label,
+      "#ffffff",
+    );
+    field.originalText = groupedText;
+    field.currentText = groupedText;
     setFields((current) => [...current, field]);
     setSelectedFieldId(field.id);
-    setSelectedCandidates(new Set());
     setInspectorTab("field");
-    setToast("Text is now editable. Drag its box to move it.");
+    setToast(
+      groupedCandidates.length > 1
+        ? `Grouped ${groupedCandidates.length} lines into one editable paragraph.`
+        : "Text is ready to edit directly on the page.",
+    );
   }
 
   function createTextBox(page: number, bbox: BoundingBox) {
@@ -1390,53 +1319,6 @@ function App() {
     setToast("New text box added. Type directly on the page.");
   }
 
-  function handleCandidateClick(candidate: Candidate) {
-    setSelectedFieldId(null);
-    setInspectorTab("field");
-    setSelectedCandidates((current) => {
-      const selectedObjects =
-        manifest?.candidates.filter((item) => current.has(item.id)) ?? [];
-      const next =
-        selectedObjects.length && selectedObjects[0].page !== candidate.page
-          ? new Set<string>()
-          : new Set(current);
-      if (next.has(candidate.id)) next.delete(candidate.id);
-      else next.add(candidate.id);
-      return next;
-    });
-  }
-
-  function handleMarqueeSelect(
-    candidateIds: string[],
-    additive: boolean,
-  ) {
-    setSelectedFieldId(null);
-    setInspectorTab("field");
-    setSelectedCandidates((current) => {
-      if (!additive) return new Set(candidateIds);
-      const next = new Set(current);
-      candidateIds.forEach((candidateId) => next.add(candidateId));
-      return next;
-    });
-  }
-
-  function createField() {
-    if (!selectedCandidateObjects.length || !fieldLabel.trim()) {
-      setToast("Give the selected text a field name first.");
-      return;
-    }
-    const field = createManagedField(
-      selectedCandidateObjects,
-      fieldLabel,
-      "#ffffff",
-    );
-    setFields((current) => [...current, field]);
-    setSelectedCandidates(new Set());
-    setFieldLabel("");
-    setSelectedFieldId(field.id);
-    setToast(`Created managed field “${field.label}”.`);
-  }
-
   function updateField(
     fieldId: string,
     patch: Partial<ManagedField>,
@@ -1450,7 +1332,7 @@ function App() {
 
   function deleteField(fieldId: string) {
     const field = fields.find((item) => item.id === fieldId);
-    if (mode === "edit" && field?.sourceBbox) {
+    if (field?.sourceBbox) {
       updateField(fieldId, { currentText: "" });
       setSelectedFieldId(null);
       setToast(`Removed ${field.label} from the exported layout.`);
@@ -1526,7 +1408,6 @@ function App() {
           revision.snapshot[field.id]?.tabStops ?? field.originalTabStops,
       })),
     );
-    setMode("edit");
     setInspectorTab("field");
     setToast(
       `Restored revision ${revision.number} as a draft. Save it to record a new revision.`,
@@ -1595,8 +1476,6 @@ function App() {
         ),
       );
       setSelectedFieldId(null);
-      setSelectedCandidates(new Set());
-      setMode(document.fields.length ? "edit" : "setup");
       setToast("Master JSON backup restored.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Import failed.");
@@ -1622,13 +1501,10 @@ function App() {
     setRevisions([]);
     setAuthor("");
     setRevisionNote("");
-    setFieldLabel("");
     setSelectedFieldId(null);
-    setSelectedCandidates(new Set());
     setOverflowIds(new Set());
     setCreateBoxMode(false);
     setInspectorTab("field");
-    setMode("setup");
     replacePreviewPages({});
     setPreviewStatus("idle");
     setSaveStatus("saving");
@@ -1664,11 +1540,9 @@ function App() {
     setFields(restored.snapshot.fields);
     setRevisions(restored.snapshot.revisions);
     setSelectedFieldId(null);
-    setSelectedCandidates(new Set());
     setOverflowIds(new Set());
     setCreateBoxMode(false);
     setInspectorTab("field");
-    setMode(restored.snapshot.fields.length ? "edit" : "setup");
     replacePreviewPages({});
     setPreviewStatus("idle");
     setCanUndo(undoStackRef.current.length > 0);
@@ -1699,31 +1573,12 @@ function App() {
           </div>
         </div>
 
-        <div className="mode-switch" aria-label="Editor mode">
-          <button
-            type="button"
-            className={mode === "setup" ? "active" : ""}
-            onClick={() => {
-              setMode("setup");
-              setCreateBoxMode(false);
-              setSelectedFieldId(null);
-              setInspectorTab("field");
-            }}
-          >
-            <Settings2 /> Template setup
-          </button>
-          <button
-            type="button"
-            className={mode === "edit" ? "active" : ""}
-            onClick={() => {
-              setMode("edit");
-              setCreateBoxMode(false);
-              setSelectedCandidates(new Set());
-              setInspectorTab("field");
-            }}
-          >
-            <Move /> Layout editor
-          </button>
+        <div className="editor-mode-label" aria-label="Layout editor">
+          <Move />
+          <div>
+            <strong>Layout editor</strong>
+            <span>Direct PDF editing</span>
+          </div>
         </div>
 
         <div className="topbar-actions">
@@ -1841,9 +1696,7 @@ function App() {
                 !fields.length &&
                 !revisions.length &&
                 !author &&
-                !revisionNote &&
-                !fieldLabel &&
-                !selectedCandidates.size
+                !revisionNote
               }
             >
               <Trash2 /> Reset everything
@@ -1865,37 +1718,29 @@ function App() {
         <main className="document-stage">
           <div className="stage-banner">
             <div>
-              {mode === "setup" ? <MousePointer2 /> : <FilePenLine />}
+              <FilePenLine />
               <div>
-                <strong>
-                  {mode === "setup"
-                    ? "Template setup mode"
-                    : "Direct layout mode"}
-                </strong>
+                <strong>Direct layout mode</strong>
                 <span>
-                  {mode === "setup"
-                    ? "Drag across text lines to select them together; Shift-drag adds more."
-                    : createBoxMode
-                      ? "Drag anywhere on a page to draw a new text box."
-                      : "Click text and type on the PDF. Use the Move grip or resize handle to adjust its box."}
+                  {createBoxMode
+                    ? "Drag anywhere on a page to draw a new text box."
+                    : "Click a line to edit its paragraph. Use the Move grip or resize handle to adjust its box."}
                 </span>
               </div>
             </div>
-            {mode === "edit" && (
-              <button
-                type="button"
-                className={`button secondary add-text-box ${
-                  createBoxMode ? "active" : ""
-                }`}
-                onClick={() => {
-                  setCreateBoxMode((current) => !current);
-                  setSelectedFieldId(null);
-                }}
-              >
-                <Type />
-                {createBoxMode ? "Cancel text box" : "Add text box"}
-              </button>
-            )}
+            <button
+              type="button"
+              className={`button secondary add-text-box ${
+                createBoxMode ? "active" : ""
+              }`}
+              onClick={() => {
+                setCreateBoxMode((current) => !current);
+                setSelectedFieldId(null);
+              }}
+            >
+              <Type />
+              {createBoxMode ? "Cancel text box" : "Add text box"}
+            </button>
             {overflowIds.size > 0 && (
               <div className="overflow-banner">
                 <AlertTriangle />
@@ -1924,12 +1769,8 @@ function App() {
                     !managedCandidateIds.has(candidate.id),
                 )}
                 fields={fields.filter((field) => field.page === page.number)}
-                mode={mode}
-                selectedCandidates={selectedCandidates}
                 selectedFieldId={selectedFieldId}
-                onCandidateClick={handleCandidateClick}
                 onDirectCandidateClick={handleDirectCandidateClick}
-                onMarqueeSelect={handleMarqueeSelect}
                 onCreateTextBox={(bbox) => createTextBox(page.number, bbox)}
                 onFieldClick={showField}
                 onClearFieldSelection={() => setSelectedFieldId(null)}
@@ -2070,58 +1911,6 @@ function App() {
             </div>
           ) : (
             <div className="inspector-body">
-              {mode === "setup" &&
-                selectedCandidateObjects.length > 0 &&
-                !selectedField && (
-                  <>
-                    <div className="panel-heading">
-                      <div>
-                        <div className="eyebrow">New managed field</div>
-                        <h2>
-                          {selectedCandidateObjects.length} line
-                          {selectedCandidateObjects.length === 1 ? "" : "s"}{" "}
-                          selected
-                        </h2>
-                      </div>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => setSelectedCandidates(new Set())}
-                        aria-label="Clear selection"
-                      >
-                        <X />
-                      </button>
-                    </div>
-                    <div className="field-form">
-                      <label>
-                        Field name
-                        <input
-                          autoFocus
-                          value={fieldLabel}
-                          onChange={(event) => setFieldLabel(event.target.value)}
-                          placeholder="e.g. Opening question"
-                        />
-                      </label>
-                      <div className="selected-copy">
-                        {selectedCandidateObjects.map((candidate) => (
-                          <p key={candidate.id}>{candidate.text}</p>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        className="button primary wide"
-                        onClick={createField}
-                      >
-                        <Plus /> Create managed field
-                      </button>
-                      <p className="form-hint">
-                        The editor will automatically sample the original
-                        background behind this text.
-                      </p>
-                    </div>
-                  </>
-                )}
-
               {selectedField && (
                 <>
                   <div className="panel-heading">
@@ -2142,18 +1931,16 @@ function App() {
                   </div>
 
                   <div className="field-form tool-panel">
-                    {mode === "edit" && (
-                      <div className="direct-edit-callout">
-                        <Type />
-                        <div>
-                          <strong>Edit directly on the PDF</strong>
-                          <span>
-                            Type inside the selected box. This panel controls
-                            its appearance and layout.
-                          </span>
-                        </div>
+                    <div className="direct-edit-callout">
+                      <Type />
+                      <div>
+                        <strong>Edit directly on the PDF</strong>
+                        <span>
+                          Type inside the selected box. This panel controls its
+                          appearance and layout.
+                        </span>
                       </div>
-                    )}
+                    </div>
 
                     <label>
                       Layer name
@@ -2407,8 +2194,7 @@ function App() {
                       </div>
                     )}
 
-                    {mode === "edit" &&
-                      (selectedField.currentText !==
+                    {(selectedField.currentText !==
                         selectedField.originalText ||
                         selectedField.fontSize !==
                           selectedField.originalFontSize ||
@@ -2476,10 +2262,7 @@ function App() {
                 </>
               )}
 
-              {!selectedField &&
-                !(mode === "setup" && selectedCandidateObjects.length) && (
-                  <EmptyInspector mode={mode} />
-                )}
+              {!selectedField && <EmptyInspector />}
             </div>
           )}
         </aside>

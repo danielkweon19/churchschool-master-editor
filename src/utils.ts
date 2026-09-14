@@ -23,40 +23,129 @@ export function unionBoxes(candidates: Candidate[]): BoundingBox {
   return { left, top, width: right - left, height: bottom - top };
 }
 
-export function candidatesInsideMarquee(
-  candidates: Candidate[],
-  marquee: BoundingBox,
-): string[] {
-  const marqueeRight = marquee.left + marquee.width;
-  const marqueeBottom = marquee.top + marquee.height;
-  return candidates
-    .filter((candidate) => {
-      const candidateRight = candidate.bbox.left + candidate.bbox.width;
-      const candidateBottom = candidate.bbox.top + candidate.bbox.height;
-      const intersectionWidth = Math.max(
-        0,
-        Math.min(marqueeRight, candidateRight) -
-          Math.max(marquee.left, candidate.bbox.left),
-      );
-      const intersectionHeight = Math.max(
-        0,
-        Math.min(marqueeBottom, candidateBottom) -
-          Math.max(marquee.top, candidate.bbox.top),
-      );
-      const candidateArea = candidate.bbox.width * candidate.bbox.height;
-      return (
-        candidateArea > 0 &&
-        (intersectionWidth * intersectionHeight) / candidateArea >= 0.2
-      );
-    })
-    .map((candidate) => candidate.id);
-}
-
 export function sortCandidates(candidates: Candidate[]): Candidate[] {
   return [...candidates].sort(
     (left, right) =>
       left.bbox.top - right.bbox.top || left.bbox.left - right.bbox.left,
   );
+}
+
+function normalizedFontFamily(fontFamily: string): string {
+  return fontFamily.replace(/^[A-Z]{6}\+/, "").toLowerCase();
+}
+
+function startsAListItem(text: string): boolean {
+  return /^\s*(?:\d+[.)]|[-\u2022])\s+/.test(text);
+}
+
+function areParagraphNeighbors(
+  current: Candidate,
+  next: Candidate,
+): boolean {
+  if (current.page !== next.page) return false;
+  if (current.style.fontSize > 18 || next.style.fontSize > 18) return false;
+  if (
+    normalizedFontFamily(current.style.fontFamily) !==
+      normalizedFontFamily(next.style.fontFamily) ||
+    Math.abs(current.style.fontSize - next.style.fontSize) > 0.75 ||
+    current.style.bold !== next.style.bold ||
+    current.style.color !== next.style.color ||
+    startsAListItem(next.text)
+  ) {
+    return false;
+  }
+
+  const verticalStep = next.bbox.top - current.bbox.top;
+  const maximumStep =
+    Math.max(current.bbox.height, next.bbox.height) * 1.45;
+  if (verticalStep < -2 || verticalStep > maximumStep) return false;
+
+  const currentRight = current.bbox.left + current.bbox.width;
+  const nextRight = next.bbox.left + next.bbox.width;
+  const overlap = Math.max(
+    0,
+    Math.min(currentRight, nextRight) -
+      Math.max(current.bbox.left, next.bbox.left),
+  );
+  const minimumWidth = Math.min(current.bbox.width, next.bbox.width);
+  const leftDifference = Math.abs(current.bbox.left - next.bbox.left);
+  const horizontalGap = Math.max(
+    0,
+    Math.max(current.bbox.left, next.bbox.left) -
+      Math.min(currentRight, nextRight),
+  );
+
+  return (
+    overlap >= minimumWidth * 0.25 ||
+    leftDifference <= Math.max(70, current.style.fontSize * 5) ||
+    (verticalStep <= 2 &&
+      horizontalGap <= Math.max(50, current.style.fontSize * 4))
+  );
+}
+
+export function paragraphCandidates(
+  selected: Candidate,
+  candidates: Candidate[],
+): Candidate[] {
+  const pageCandidates = candidates.filter(
+    (candidate) => candidate.page === selected.page,
+  );
+  if (!pageCandidates.some((candidate) => candidate.id === selected.id)) {
+    return [selected];
+  }
+
+  const grouped = new Map([[selected.id, selected]]);
+  let first = selected;
+  let last = selected;
+
+  while (true) {
+    const previous = pageCandidates
+      .filter(
+        (candidate) =>
+          !grouped.has(candidate.id) &&
+          (candidate.bbox.top < first.bbox.top ||
+            (candidate.bbox.top === first.bbox.top &&
+              candidate.bbox.left < first.bbox.left)) &&
+          areParagraphNeighbors(candidate, first),
+      )
+      .sort(
+        (left, right) =>
+          right.bbox.top - left.bbox.top ||
+          right.bbox.left - left.bbox.left,
+      )[0];
+    if (!previous) break;
+    grouped.set(previous.id, previous);
+    first = previous;
+  }
+
+  while (true) {
+    const next = pageCandidates
+      .filter(
+        (candidate) =>
+          !grouped.has(candidate.id) &&
+          (candidate.bbox.top > last.bbox.top ||
+            (candidate.bbox.top === last.bbox.top &&
+              candidate.bbox.left > last.bbox.left)) &&
+          areParagraphNeighbors(last, candidate),
+      )
+      .sort(
+        (left, right) =>
+          left.bbox.top - right.bbox.top ||
+          left.bbox.left - right.bbox.left,
+      )[0];
+    if (!next) break;
+    grouped.set(next.id, next);
+    last = next;
+  }
+
+  return sortCandidates([...grouped.values()]);
+}
+
+export function paragraphText(candidates: Candidate[]): string {
+  return sortCandidates(candidates)
+    .map((candidate) => candidate.text.trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 function median(values: number[]): number {
