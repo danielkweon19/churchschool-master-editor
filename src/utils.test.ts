@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Candidate, ManagedField } from "./types";
 import {
+  candidateParagraphGroups,
   createManagedField,
   insertAtSelection,
   paragraphCandidates,
@@ -146,6 +147,31 @@ describe("document helpers", () => {
         (candidate) => candidate.id,
       ),
     ).toEqual(["left-one", "left-two"]);
+  });
+
+  it("builds one visible selection region per paragraph", () => {
+    const paragraphLines: Candidate[] = [
+      {
+        ...candidates[0],
+        id: "first-a",
+        bbox: { left: 70, top: 100, width: 280, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "first-b",
+        bbox: { left: 70, top: 116, width: 270, height: 18 },
+      },
+      {
+        ...candidates[1],
+        id: "second",
+        bbox: { left: 70, top: 150, width: 250, height: 18 },
+      },
+    ];
+    expect(
+      candidateParagraphGroups(paragraphLines).map((group) =>
+        group.map((candidate) => candidate.id),
+      ),
+    ).toEqual([["first-a", "first-b"], ["second"]]);
   });
 
   it("compares drafts with the last saved snapshot", () => {

@@ -148,6 +148,20 @@ export function paragraphText(candidates: Candidate[]): string {
     .join(" ");
 }
 
+export function candidateParagraphGroups(
+  candidates: Candidate[],
+): Candidate[][] {
+  const claimed = new Set<string>();
+  return sortCandidates(candidates).flatMap((candidate) => {
+    if (claimed.has(candidate.id)) return [];
+    const group = paragraphCandidates(candidate, candidates).filter(
+      (item) => !claimed.has(item.id),
+    );
+    group.forEach((item) => claimed.add(item.id));
+    return [group];
+  });
+}
+
 function median(values: number[]): number {
   if (!values.length) return 0;
   const sorted = [...values].sort((left, right) => left - right);

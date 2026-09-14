@@ -45,11 +45,12 @@ import type {
   SourceManifest,
 } from "./types";
 import {
+  candidateParagraphGroups,
   createManagedField,
   downloadBlob,
   insertAtSelection,
-  paragraphCandidates,
   paragraphText,
+  unionBoxes,
   responseError,
   revisionChanges,
   slugify,
@@ -84,7 +85,7 @@ interface PageCanvasProps {
   candidates: Candidate[];
   fields: ManagedField[];
   selectedFieldId: string | null;
-  onDirectCandidateClick: (candidate: Candidate) => void;
+  onDirectCandidateClick: (candidates: Candidate[]) => void;
   onCreateTextBox: (bbox: BoundingBox) => void;
   onFieldClick: (field: ManagedField) => void;
   onClearFieldSelection: () => void;
@@ -836,6 +837,10 @@ function PageCanvas({
     y: number;
   } | null>(null);
   const activePageImage = previewImage ?? page.image;
+  const candidateGroups = useMemo(
+    () => candidateParagraphGroups(candidates),
+    [candidates],
+  );
 
   const marquee = useMemo<BoundingBox | null>(() => {
     if (!dragStart || !dragCurrent) return null;
@@ -950,23 +955,27 @@ function PageCanvas({
           onLoad={() => setImageVersion((current) => current + 1)}
         />
         {!createBoxMode &&
-          candidates.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              data-candidate-id={candidate.id}
-              className="candidate-box direct-candidate"
-              style={{
-                left: `${(candidate.bbox.left / page.width) * 100}%`,
-                top: `${(candidate.bbox.top / page.height) * 100}%`,
-                width: `${(candidate.bbox.width / page.width) * 100}%`,
-                height: `${(candidate.bbox.height / page.height) * 100}%`,
-              }}
-              onClick={() => onDirectCandidateClick(candidate)}
-              aria-label={`Select text: ${candidate.text}`}
-              title={candidate.text}
-            />
-          ))}
+          candidateGroups.map((group) => {
+            const bbox = unionBoxes(group);
+            const text = paragraphText(group);
+            return (
+              <button
+                key={group.map((candidate) => candidate.id).join("-")}
+                type="button"
+                data-candidate-id={group[0].id}
+                className="candidate-box direct-candidate"
+                style={{
+                  left: `${(bbox.left / page.width) * 100}%`,
+                  top: `${(bbox.top / page.height) * 100}%`,
+                  width: `${(bbox.width / page.width) * 100}%`,
+                  height: `${(bbox.height / page.height) * 100}%`,
+                }}
+                onClick={() => onDirectCandidateClick(group)}
+                aria-label={`Select text: ${text}`}
+                title={text}
+              />
+            );
+          })}
         {createBoxMode &&
           marquee &&
           (marquee.width > 3 || marquee.height > 3) && (
@@ -1244,19 +1253,12 @@ function App() {
     setInspectorTab("field");
   }
 
-  function handleDirectCandidateClick(candidate: Candidate) {
-    if (!manifest) return;
-    const availableCandidates = manifest.candidates.filter(
-      (item) =>
-        item.page === candidate.page && !managedCandidateIds.has(item.id),
-    );
-    const groupedCandidates = paragraphCandidates(
-      candidate,
-      availableCandidates,
-    );
+  function handleDirectCandidateClick(groupedCandidates: Candidate[]) {
+    const firstCandidate = groupedCandidates[0];
+    if (!firstCandidate) return;
     const groupedText = paragraphText(groupedCandidates);
     const label =
-      groupedText.slice(0, 32) || `Text on page ${candidate.page}`;
+      groupedText.slice(0, 32) || `Text on page ${firstCandidate.page}`;
     const field = createManagedField(
       groupedCandidates,
       label,
