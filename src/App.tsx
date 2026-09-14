@@ -1418,6 +1418,44 @@ function App() {
     }
   }
 
+  async function resetEverything() {
+    if (!manifest) return;
+    const confirmed = window.confirm(
+      "Reset everything?\n\nThis will remove all managed text boxes, edits, and revision history from this browser. The original PDF will not be changed.",
+    );
+    if (!confirmed) return;
+
+    const resetState: PersistedState = {
+      fields: [],
+      revisions: [],
+      author: "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    setFields([]);
+    setRevisions([]);
+    setAuthor("");
+    setRevisionNote("");
+    setFieldLabel("");
+    setSelectedFieldId(null);
+    setSelectedCandidates(new Set());
+    setOverflowIds(new Set());
+    setCreateBoxMode(false);
+    setInspectorTab("field");
+    setMode("setup");
+    replacePreviewPages({});
+    setPreviewStatus("idle");
+    setSaveStatus("saving");
+
+    try {
+      await saveState(manifest.documentId, resetState);
+      setSaveStatus("saved");
+      setToast("Everything was reset to the original PDF.");
+    } catch {
+      setToast("The editor was reset, but the local reset could not be saved.");
+    }
+  }
+
   if (!manifest) {
     return (
       <main className="loading-screen">
@@ -1566,6 +1604,21 @@ function App() {
               disabled={exporting !== null}
             >
               <FileClock /> Download change log
+            </button>
+            <button
+              type="button"
+              className="reset-master"
+              onClick={() => void resetEverything()}
+              disabled={
+                !fields.length &&
+                !revisions.length &&
+                !author &&
+                !revisionNote &&
+                !fieldLabel &&
+                !selectedCandidates.size
+              }
+            >
+              <Trash2 /> Reset everything
             </button>
             <input
               ref={importRef}

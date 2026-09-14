@@ -420,6 +420,23 @@ select:focus-visible {
   background: #edf5f6;
 }
 
+.sidebar-tools button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.sidebar-tools button.reset-master {
+  margin-top: 7px;
+  border-top: 1px solid #e8dadd;
+  border-radius: 0 0 8px 8px;
+  color: var(--danger);
+}
+
+.sidebar-tools button.reset-master:hover:not(:disabled) {
+  color: #9f2635;
+  background: #fff1f3;
+}
+
 .document-stage {
   overflow-y: auto;
   scroll-behavior: smooth;
