@@ -21,6 +21,7 @@ FONT_FILES = {
     ("superclarendon", False): FONT_ROOT / "SuperClarendon.ttc",
     ("superclarendon", True): FONT_ROOT / "SuperClarendon.ttc",
 }
+FIRST_LINE_TAB_EM = 3
 
 
 class ExportError(ValueError):
@@ -320,7 +321,7 @@ def _insert_paragraph_text(
     font_size = field.font_size * scale
     left_indent = (0 if field.first_line_tab else field.left_indent) * scale
     first_indent = (
-        field.font_size * 2
+        field.font_size * FIRST_LINE_TAB_EM
         if field.first_line_tab
         else field.first_line_indent
     ) * scale

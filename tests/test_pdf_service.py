@@ -9,6 +9,7 @@ import pymupdf as fitz
 
 from backend.models import ManagedField, MasterDocument
 from backend.pdf_service import (
+    FIRST_LINE_TAB_EM,
     SOURCE_PDF,
     _sample_background,
     export_change_log,
@@ -292,7 +293,9 @@ class PdfServiceTest(unittest.TestCase):
         second = next(word for word in words if word[4] == "Second")
         self.assertAlmostEqual(
             indented[0] - second[0],
-            field.font_size * 2 / document.coordinate_scale,
+            field.font_size
+            * FIRST_LINE_TAB_EM
+            / document.coordinate_scale,
             delta=0.75,
         )
         self.assertAlmostEqual(

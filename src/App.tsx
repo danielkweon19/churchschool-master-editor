@@ -56,6 +56,7 @@ import {
 } from "./utils";
 
 type InspectorTab = "field" | "history";
+const FIRST_LINE_TAB_EM = 3;
 
 interface PageCanvasProps {
   page: PageDefinition;
@@ -330,7 +331,7 @@ function TabbedText({
       (field.firstLineTab ? 0 : field.leftIndent) +
       (lineIndex === 0
         ? field.firstLineTab
-          ? field.fontSize * 2
+          ? field.fontSize * FIRST_LINE_TAB_EM
           : field.firstLineIndent
         : 0);
     const segments = line.split("\t").map((text, segmentIndex) => {
@@ -522,7 +523,7 @@ function ManagedOverlay({
               ? 0
               : `${
                   (field.firstLineTab
-                    ? field.fontSize * 2
+                    ? field.fontSize * FIRST_LINE_TAB_EM
                     : field.firstLineIndent) * scale
                 }px`,
             tabSize: `${field.tabInterval * scale}px`,
