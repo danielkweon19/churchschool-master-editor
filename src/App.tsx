@@ -52,6 +52,7 @@ import {
   candidatesInsideMarquee,
   createManagedField,
   downloadBlob,
+  insertAtSelection,
   responseError,
   revisionChanges,
   slugify,
@@ -93,6 +94,8 @@ interface PageCanvasProps {
   onMarqueeSelect: (candidateIds: string[], additive: boolean) => void;
   onCreateTextBox: (bbox: BoundingBox) => void;
   onFieldClick: (field: ManagedField) => void;
+  onClearFieldSelection: () => void;
+  onFieldTextChange: (fieldId: string, text: string) => void;
   onFieldGeometryChange: (fieldId: string, bbox: BoundingBox) => void;
   onOverflow: (fieldId: string, overflowing: boolean) => void;
 }
@@ -462,6 +465,7 @@ function ManagedOverlay({
   onOverflow,
   resolvedBackground,
   renderTextPreview,
+  onTextChange,
   onGeometryChange,
 }: {
   field: ManagedField;
@@ -473,9 +477,11 @@ function ManagedOverlay({
   onOverflow: (overflowing: boolean) => void;
   resolvedBackground: string;
   renderTextPreview: boolean;
+  onTextChange: (text: string) => void;
   onGeometryChange: (bbox: BoundingBox) => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const inlineEditorRef = useRef<HTMLTextAreaElement>(null);
   const geometryGesture = useRef<{
     kind: "move" | "resize";
     clientX: number;
@@ -491,10 +497,26 @@ function ManagedOverlay({
   const changed = fieldWasChanged(field);
   const hasTabs = field.currentText.includes("\t");
   const hasList = field.listStyle !== "none";
+  const showInlineEditor = mode === "edit" && selected;
 
   useLayoutEffect(() => {
-    const element = contentRef.current;
-    if (!element || !changed || !renderTextPreview) {
+    if (!showInlineEditor) return;
+    const editor = inlineEditorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const caret = editor.value.length;
+    editor.setSelectionRange(caret, caret);
+  }, [field.id, showInlineEditor]);
+
+  useLayoutEffect(() => {
+    const element = showInlineEditor
+      ? inlineEditorRef.current
+      : contentRef.current;
+    if (
+      !element ||
+      !changed ||
+      (!renderTextPreview && !showInlineEditor)
+    ) {
       onOverflow(false);
       return;
     }
@@ -520,6 +542,7 @@ function ManagedOverlay({
     scale,
     onOverflow,
     renderTextPreview,
+    showInlineEditor,
   ]);
 
   const position = {
@@ -612,18 +635,20 @@ function ManagedOverlay({
         changed ? "is-changed" : ""
       } ${mode === "setup" ? "is-setup" : ""} ${
         field.previewPatch ? "has-artwork-patch" : ""
-      }`}
+      } ${showInlineEditor ? "is-inline-editing" : ""}`}
       style={position}
     >
-      {changed && renderTextPreview && field.previewPatch && patchPosition && (
-        <img
-          className="artwork-preview-patch"
-          src={field.previewPatch}
-          alt=""
-          style={patchPosition}
-        />
-      )}
-      {changed && renderTextPreview && (
+      {field.previewPatch &&
+        patchPosition &&
+        ((changed && renderTextPreview) || showInlineEditor) && (
+          <img
+            className="artwork-preview-patch"
+            src={field.previewPatch}
+            alt=""
+            style={patchPosition}
+          />
+        )}
+      {changed && renderTextPreview && !showInlineEditor && (
         <div
           ref={contentRef}
           className="managed-render"
@@ -674,43 +699,117 @@ function ManagedOverlay({
           )}
         </div>
       )}
-      <button
-        type="button"
-        className="managed-hitbox"
-        onClick={onClick}
-        onPointerDown={(event) => startGeometryGesture(event, "move")}
-        onPointerMove={updateGeometry}
-        onPointerUp={finishGeometry}
-        onPointerCancel={finishGeometry}
-        onKeyDown={(event) => {
-          if (mode !== "edit" || !event.key.startsWith("Arrow")) return;
-          event.preventDefault();
-          const step = event.shiftKey ? 10 : 1;
-          const next = { ...field.bbox };
-          if (event.key === "ArrowLeft") next.left -= step;
-          if (event.key === "ArrowRight") next.left += step;
-          if (event.key === "ArrowUp") next.top -= step;
-          if (event.key === "ArrowDown") next.top += step;
-          next.left = Math.max(0, Math.min(page.width - next.width, next.left));
-          next.top = Math.max(0, Math.min(page.height - next.height, next.top));
-          onGeometryChange(next);
-        }}
-        aria-label={`Edit ${field.label}`}
-        title={field.label}
-      >
-        <span>{field.label}</span>
-      </button>
-      {mode === "edit" && selected && (
+      {showInlineEditor && (
+        <textarea
+          ref={inlineEditorRef}
+          className="inline-text-editor"
+          value={field.currentText}
+          placeholder="Type directly on the PDF..."
+          spellCheck
+          onChange={(event) => onTextChange(event.target.value)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key !== "Tab") return;
+            event.preventDefault();
+            const result = insertAtSelection(
+              field.currentText,
+              event.currentTarget.selectionStart,
+              event.currentTarget.selectionEnd,
+              "\t",
+            );
+            onTextChange(result.value);
+            window.requestAnimationFrame(() => {
+              inlineEditorRef.current?.setSelectionRange(
+                result.caret,
+                result.caret,
+              );
+            });
+          }}
+          style={{
+            backgroundColor:
+              field.previewPatch &&
+              boxesEqual(field.bbox, field.originalBbox)
+                ? "transparent"
+                : resolvedBackground,
+            color: field.color,
+            fontFamily: fontStack(field.fontFamily),
+            fontSize: `${field.fontSize * scale}px`,
+            fontWeight: field.bold ? 700 : 400,
+            lineHeight: field.lineHeight,
+            textAlign: hasTabs || hasList ? "left" : field.align,
+            paddingLeft:
+              hasTabs || hasList || field.firstLineTab
+                ? 0
+                : `${field.leftIndent * scale}px`,
+            textIndent: hasTabs || hasList
+              ? 0
+              : `${
+                  (field.firstLineTab
+                    ? field.fontSize * FIRST_LINE_TAB_EM
+                    : field.firstLineIndent) * scale
+                }px`,
+            tabSize: `${field.tabInterval * scale}px`,
+          }}
+        />
+      )}
+      {!showInlineEditor && (
         <button
           type="button"
-          className="resize-handle"
-          aria-label={`Resize ${field.label}`}
-          title="Drag to resize"
-          onPointerDown={(event) => startGeometryGesture(event, "resize")}
-          onPointerMove={updateGeometry}
-          onPointerUp={finishGeometry}
-          onPointerCancel={finishGeometry}
-        />
+          className="managed-hitbox"
+          onClick={onClick}
+          aria-label={`Edit ${field.label}`}
+          title={field.label}
+        >
+          <span>{field.label}</span>
+        </button>
+      )}
+      {showInlineEditor && (
+        <>
+          <button
+            type="button"
+            className="move-handle"
+            aria-label={`Move ${field.label}`}
+            title="Drag to move; arrow keys nudge"
+            onPointerDown={(event) => startGeometryGesture(event, "move")}
+            onPointerMove={updateGeometry}
+            onPointerUp={finishGeometry}
+            onPointerCancel={finishGeometry}
+            onKeyDown={(event) => {
+              if (!event.key.startsWith("Arrow")) return;
+              event.preventDefault();
+              const step = event.shiftKey ? 10 : 1;
+              const next = { ...field.bbox };
+              if (event.key === "ArrowLeft") next.left -= step;
+              if (event.key === "ArrowRight") next.left += step;
+              if (event.key === "ArrowUp") next.top -= step;
+              if (event.key === "ArrowDown") next.top += step;
+              next.left = Math.max(
+                0,
+                Math.min(page.width - next.width, next.left),
+              );
+              next.top = Math.max(
+                0,
+                Math.min(page.height - next.height, next.top),
+              );
+              onGeometryChange(next);
+            }}
+          >
+            <Move />
+            <span>Move</span>
+          </button>
+          <button
+            type="button"
+            className="resize-handle"
+            aria-label={`Resize ${field.label}`}
+            title="Drag to resize"
+            onPointerDown={(event) => startGeometryGesture(event, "resize")}
+            onPointerMove={updateGeometry}
+            onPointerUp={finishGeometry}
+            onPointerCancel={finishGeometry}
+          />
+        </>
       )}
     </div>
   );
@@ -730,6 +829,8 @@ function PageCanvas({
   onMarqueeSelect,
   onCreateTextBox,
   onFieldClick,
+  onClearFieldSelection,
+  onFieldTextChange,
   onFieldGeometryChange,
   onOverflow,
 }: PageCanvasProps) {
@@ -778,9 +879,16 @@ function PageCanvas({
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
     const drawingTextBox = mode === "edit" && createBoxMode;
-    if ((mode !== "setup" && !drawingTextBox) || event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (mode === "edit" && !drawingTextBox) {
+      if (!target.closest(".managed-overlay, .candidate-box")) {
+        onClearFieldSelection();
+      }
+      return;
+    }
+    if (mode !== "setup" && !drawingTextBox) return;
     if (target.closest(".managed-hitbox, .resize-handle")) return;
     pointerCandidateId.current =
       mode === "setup"
@@ -962,6 +1070,7 @@ function PageCanvas({
                 : field.backgroundColor
             }
             renderTextPreview={!previewImage || mode !== "edit"}
+            onTextChange={(text) => onFieldTextChange(field.id, text)}
             onGeometryChange={(bbox) =>
               onFieldGeometryChange(field.id, bbox)
             }
@@ -982,7 +1091,7 @@ function EmptyInspector({ mode }: { mode: Mode }) {
       <p>
         {mode === "setup"
           ? "Drag across adjacent text lines, or click them individually. Shift-drag adds to the selection."
-          : "Click existing PDF text to make it editable, or add a new text box from the page toolbar."}
+          : "Click existing PDF text and type directly on the page. The side panel is your formatting toolbar."}
       </p>
     </div>
   );
@@ -1246,7 +1355,7 @@ function App() {
       originalBbox: { ...bbox },
       sourceBbox: null,
       originalText: "",
-      currentText: "New text",
+      currentText: "",
       fontFamily: "Times New Roman",
       fontSize: 14,
       originalFontSize: 14,
@@ -1278,7 +1387,7 @@ function App() {
     setSelectedFieldId(field.id);
     setCreateBoxMode(false);
     setInspectorTab("field");
-    setToast("New text box added.");
+    setToast("New text box added. Type directly on the page.");
   }
 
   function handleCandidateClick(candidate: Candidate) {
@@ -1768,7 +1877,7 @@ function App() {
                     ? "Drag across text lines to select them together; Shift-drag adds more."
                     : createBoxMode
                       ? "Drag anywhere on a page to draw a new text box."
-                      : "Click source text to edit it, then drag or resize its box."}
+                      : "Click text and type on the PDF. Use the Move grip or resize handle to adjust its box."}
                 </span>
               </div>
             </div>
@@ -1823,6 +1932,10 @@ function App() {
                 onMarqueeSelect={handleMarqueeSelect}
                 onCreateTextBox={(bbox) => createTextBox(page.number, bbox)}
                 onFieldClick={showField}
+                onClearFieldSelection={() => setSelectedFieldId(null)}
+                onFieldTextChange={(fieldId, text) =>
+                  updateField(fieldId, { currentText: text })
+                }
                 onFieldGeometryChange={(fieldId, bbox) =>
                   updateField(fieldId, { bbox })
                 }
@@ -1847,7 +1960,7 @@ function App() {
               className={inspectorTab === "field" ? "active" : ""}
               onClick={() => setInspectorTab("field")}
             >
-              <PanelRight /> Field
+              <PanelRight /> Tools
             </button>
             <button
               type="button"
@@ -2014,7 +2127,7 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <div className="eyebrow">
-                        Managed field · Page {selectedField.page}
+                        Text tools · Page {selectedField.page}
                       </div>
                       <h2>{selectedField.label}</h2>
                     </div>
@@ -2028,9 +2141,22 @@ function App() {
                     </button>
                   </div>
 
-                  <div className="field-form">
+                  <div className="field-form tool-panel">
+                    {mode === "edit" && (
+                      <div className="direct-edit-callout">
+                        <Type />
+                        <div>
+                          <strong>Edit directly on the PDF</strong>
+                          <span>
+                            Type inside the selected box. This panel controls
+                            its appearance and layout.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <label>
-                      Field name
+                      Layer name
                       <input
                         value={selectedField.label}
                         onChange={(event) =>
@@ -2094,8 +2220,8 @@ function App() {
                       </div>
                       {selectedField.listStyle !== "none" && (
                         <small>
-                          Enter one item per line. Blank lines add space without
-                          using a number or bullet.
+                          Type one item per line on the PDF. Markers appear
+                          when you deselect the box and in the export.
                         </small>
                       )}
                     </div>
@@ -2119,22 +2245,6 @@ function App() {
                         </span>
                         <i aria-hidden="true" />
                       </button>
-                    )}
-
-                    {mode === "edit" && (
-                      <label>
-                        Text
-                        <textarea
-                          className="content-textarea"
-                          value={selectedField.currentText}
-                          onChange={(event) =>
-                            updateField(selectedField.id, {
-                              currentText: event.target.value,
-                            })
-                          }
-                          rows={10}
-                        />
-                      </label>
                     )}
 
                     <div className="form-row">
@@ -2208,8 +2318,8 @@ function App() {
                         ))}
                       </div>
                       <small>
-                        Drag the box to move it. Use the lower-right handle to
-                        resize. Arrow keys nudge the selected box.
+                        Drag the Move grip above the text. Use the lower-right
+                        handle to resize. Arrow keys on the grip nudge the box.
                       </small>
                     </fieldset>
 

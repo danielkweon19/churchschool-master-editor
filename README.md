@@ -26,14 +26,17 @@ process owns either port.
 
 ## Workflow
 
-1. Switch to **Layout editor**, then click existing PDF text to make it
-   editable. You can still use **Template setup** to group several adjacent
-   PDF lines into one field.
-2. Drag a selected text box to move it. Drag its lower-right handle to resize,
-   use the arrow keys for precise nudging, or enter exact X, Y, width, and
-   height values in the inspector.
+1. Switch to **Layout editor**, then click existing PDF text and type directly
+   inside its box on the page. The side panel is a formatting and layout
+   toolbar rather than a separate text editor. You can still use **Template
+   setup** to group several adjacent PDF lines into one field.
+2. Drag the **Move** grip above selected text to reposition it. Drag its
+   lower-right handle to resize, use the arrow keys for precise nudging, or
+   enter exact X, Y, width, and height values in the toolbar.
 3. Choose **Add text box**, then drag on a page to create entirely new text.
-4. Edit the copy and formatting in the inspector. The editor removes managed
+   The caret appears in the new box so you can type immediately. Press Tab to
+   insert a tracked tab character, and click empty page space to deselect.
+4. Edit the copy on the page and adjust formatting in the toolbar. The editor removes managed
    source text from its original location and redraws it from the tracked box
    geometry while leaving the immutable source PDF untouched.
 5. Resolve any overflow warning, then enter an author and note under
